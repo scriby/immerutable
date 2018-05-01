@@ -1,0 +1,27 @@
+{
+  "name": "immerutable",
+  "version": "0.0.1",
+  "devDependencies": {
+    "@types/jest": "^22.2.3",
+    "jest": "22.4.3",
+    "ts-jest": "^22.4.4",
+    "typescript": "2.8.3"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "jest --watch",
+    "test-debug": "node --inspect-brk ./node_modules/.bin/jest"
+  },
+  "jest": {
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testRegex": "(/__tests__/.*|(\\.|/)test)\\.ts$",
+    "moduleFileExtensions": [
+      "ts",
+      "js",
+      "json",
+      "node"
+    ]
+  }
+}

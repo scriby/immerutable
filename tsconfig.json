@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "sourceMap": false,
+    "declaration": true,
+    "target": "ES5",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "inlineSourceMap": true,
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
+}
