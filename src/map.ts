@@ -20,12 +20,18 @@ export interface TrieNode<T> {
   length: number;
 }
 
-export type ValueNode<T> = NumberIndexable<T> & StringIndexable<T>;
+export interface ValueNode<T> {
+  size: number;
+
+  map: NumberIndexable<T> & StringIndexable<T>;
+}
 
 const SHIFT = 5;
 const TRIE_NODE_SIZE = 1 << SHIFT;
 const MASK = TRIE_NODE_SIZE - 1;
-const DEPTH = Math.ceil(TRIE_NODE_SIZE / SHIFT);
+const MAX_DEPTH = Math.ceil(TRIE_NODE_SIZE / SHIFT);
+
+const MAX_VALUE_NODE_SIZE = TRIE_NODE_SIZE;
 
 export function createMap<K extends Key, V>(): Map<K, V> {
   return {
@@ -35,42 +41,33 @@ export function createMap<K extends Key, V>(): Map<K, V> {
 }
 
 export function hasInMap<K extends Key, V>(map: Map<K, V>, key: K): boolean {
-  const {valueNode} = getValueNodePath(map, key);
+  const {valueNode} = lookupValueNode(map, key);
 
-  return key in valueNode;
+  return key in valueNode.map;
 }
 
 export function getInMap<K extends Key, V>(map: Map<K, V>, key: K): V|undefined {
-  const {valueNode} = getValueNodePath(map, key);
+  const {valueNode} = lookupValueNode(map, key);
 
-  return valueNode[key as any];
+  return valueNode.map[key as any];
 }
 
-export function setInMap<K extends Key, V>(map: Map<K, V>, key: Key, value: V): Map<K, V> {
-  const {path, valueNode} = getValueNodePath(map, key);
-  const existingValue = valueNode[key];
+export function setInMap<K extends Key, V>(map: Map<K, V>, key: Key, value: V): void {
+  const {containingTrieNode, depth, valueNode} = lookupValueNode(map, key);
+  const exists = key in valueNode.map;
 
-  if (existingValue === value) {
-    return map;
+  if (exists) return;
+
+  if (valueNode.size >= MAX_VALUE_NODE_SIZE && depth < MAX_DEPTH) {
+    const newTrieNode = splitValueNode(valueNode, depth);
+    containingTrieNode[computePartialHashCode(hash(key.toString()), depth - 1)] = newTrieNode;
+
+    this.setInMap(map, key, value);
+    return;
   }
 
-  const newValueNode = {
-    ...valueNode,
-    [key]: value,
-  };
-  let prev: TrieNode<V> | ValueNode<V> = newValueNode;
-
-  for (let i = DEPTH - 1; i >= 0; i--) {
-    const next = path[i].node.slice();
-    next[path[i].index] = prev;
-
-    prev = next;
-  }
-
-  return {
-    root: prev as TrieNode<V>,
-    size: map.size + 1,
-  };
+  valueNode.map[key] = value;
+  valueNode.size++;
 }
 
 function createTrieNode<V>(): TrieNode<V> {
@@ -78,33 +75,54 @@ function createTrieNode<V>(): TrieNode<V> {
 }
 
 function createValueNode<V>(): ValueNode<V> {
-  return Object.create(null);
+  return {
+    size: 0,
+    map: Object.create(null),
+  };
 }
 
-function getValueNodePath<K extends Key, V>(map: Map<K, V>, key: Key) {
-  const path = new Array(DEPTH);
-  let hashCode = hash(key);
+function lookupValueNode<K extends Key, V>(map: Map<K, V>, key: Key) {
+  let hashCode = hash(key.toString());
   let node: TrieNode<V> | ValueNode<V> = map.root;
+  let containingTrieNode: TrieNode<V> = map.root;
+  let depth = 1;
 
-  for (let i = 0; i < DEPTH; i++) {
-    const index = hashCode & MASK;
-    hashCode >>= SHIFT;
+  while (depth <= MAX_DEPTH) {
+    const index = computePartialHashCode(hashCode, depth);
+    depth++;
 
-    let nextNode: TrieNode<V> | ValueNode<V> = node[index] as any;
+    let nextNode: TrieNode<V> | ValueNode<V> = node[index];
     if (!nextNode) {
-      if (i === DEPTH - 1) {
-        nextNode = node[index] = createValueNode<V>();
-      } else {
-        nextNode = node[index] = createTrieNode<V>();
-      }
+      node = node[index] = createValueNode<V>();
+      break;
+    } else if ('length' in nextNode) {
+      containingTrieNode = node;
+      node = nextNode;
+    } else {
+      node = nextNode;
+      break;
     }
-
-    path[i] = {index, node};
-    node = nextNode;
   }
 
-  return {
-    valueNode: node as ValueNode<V>,
-    path,
-  };
+  return { containingTrieNode, depth, valueNode: node as ValueNode<V> };
+}
+
+function splitValueNode<V>(valueNode: ValueNode<V>, depth: number) {
+  const trieNode = createTrieNode<V>();
+
+  for (const key in valueNode.map) {
+    const value = valueNode.map[key];
+    const hashCode = hash(key);
+    const index = computePartialHashCode(hashCode, depth);
+    const newValueNode = trieNode[index] = trieNode[index] as ValueNode<V> || createValueNode<V>();
+
+    newValueNode.map[key] = value;
+    newValueNode.size++;
+  }
+
+  return trieNode;
+}
+
+function computePartialHashCode(hashCode: number, depth: number) {
+  return (hashCode >> ((depth - 1) * SHIFT)) & MASK;
 }

@@ -22,31 +22,12 @@
   SOFTWARE.
 */
 
-export function hash(key: number | string) {
+export function hash(key: string) {
   if (key == null) {
     return 0;
   }
 
-  if (typeof key === 'number') {
-    if (key !== key || key === Infinity) {
-      return 0;
-    }
-    let h = key | 0;
-    if (h !== key) {
-      h ^= key * 0xffffffff;
-    }
-    while (key > 0xffffffff) {
-      key /= 0xffffffff;
-      h ^= key;
-    }
-    return smi(h);
-  }
-
-  if (typeof key === 'string') {
-    return hashString(key);
-  }
-
-  throw new Error('Cannot hash key');
+  return hashString(key);
 }
 
 // http://jsperf.com/hashing-strings
