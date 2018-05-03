@@ -1,5 +1,6 @@
 {
   "compilerOptions": {
+    "alwaysStrict": true,
     "sourceMap": false,
     "declaration": true,
     "target": "ES5",
@@ -12,6 +13,7 @@
     "outDir": "dist"
   },
   "include": [
+    "benchmark/**/*.ts",
     "src/**/*.ts"
   ],
   "exclude": [

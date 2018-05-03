@@ -41,7 +41,7 @@ describe('map', () => {
     const map = createMap<number, typeof testValue>();
 
     setInMap(map, 0, testValue);
-    const valueNode = map.root[Object.keys(map.root)[0]] as ValueNode<typeof testValue>;
+    const valueNode = map.root[Number(Object.keys(map.root)[0])] as ValueNode<typeof testValue>;
     expect(valueNode.size).toBe(1);
 
     valueNode.size = 32;

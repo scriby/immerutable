@@ -26,16 +26,16 @@ export interface ValueNode<T> {
   map: NumberIndexable<T> & StringIndexable<T>;
 }
 
-const SHIFT = 5;
+const SHIFT = 6;
 const TRIE_NODE_SIZE = 1 << SHIFT;
 const MASK = TRIE_NODE_SIZE - 1;
-const MAX_DEPTH = Math.ceil(TRIE_NODE_SIZE / SHIFT);
+const MAX_DEPTH = Math.ceil(32 / SHIFT);
 
-const MAX_VALUE_NODE_SIZE = TRIE_NODE_SIZE;
+const MAX_VALUE_NODE_SIZE = 1;
 
 export function createMap<K extends Key, V>(): Map<K, V> {
   return {
-    root: createTrieNode(),
+    root: createTrieNode<V>(),
     size: 0,
   };
 }
@@ -53,14 +53,14 @@ export function getInMap<K extends Key, V>(map: Map<K, V>, key: K): V|undefined 
 }
 
 export function setInMap<K extends Key, V>(map: Map<K, V>, key: Key, value: V): void {
-  const {containingTrieNode, depth, valueNode} = lookupValueNode(map, key);
+  const {containingTrieNode, depth, index, valueNode} = lookupValueNode(map, key);
   const exists = key in valueNode.map;
 
   if (exists) return;
 
   if (valueNode.size >= MAX_VALUE_NODE_SIZE && depth < MAX_DEPTH) {
     const newTrieNode = splitValueNode(valueNode, depth);
-    containingTrieNode[computePartialHashCode(hash(key.toString()), depth - 1)] = newTrieNode;
+    containingTrieNode[index] = newTrieNode;
 
     this.setInMap(map, key, value);
     return;
@@ -71,7 +71,7 @@ export function setInMap<K extends Key, V>(map: Map<K, V>, key: Key, value: V): 
 }
 
 function createTrieNode<V>(): TrieNode<V> {
-  return new Array(TRIE_NODE_SIZE);
+  return [];
 }
 
 function createValueNode<V>(): ValueNode<V> {
@@ -83,28 +83,28 @@ function createValueNode<V>(): ValueNode<V> {
 
 function lookupValueNode<K extends Key, V>(map: Map<K, V>, key: Key) {
   let hashCode = hash(key.toString());
-  let node: TrieNode<V> | ValueNode<V> = map.root;
-  let containingTrieNode: TrieNode<V> = map.root;
+  let node: TrieNode<V> = map.root;
+  let index = 0;
   let depth = 1;
+  let valueNode: ValueNode<V>;
 
   while (depth <= MAX_DEPTH) {
-    const index = computePartialHashCode(hashCode, depth);
+    index = computePartialHashCode(hashCode, depth);
     depth++;
 
     let nextNode: TrieNode<V> | ValueNode<V> = node[index];
-    if (!nextNode) {
-      node = node[index] = createValueNode<V>();
+    if (nextNode === undefined) {
+      valueNode = node[index] = createValueNode<V>();
       break;
     } else if ('length' in nextNode) {
-      containingTrieNode = node;
       node = nextNode;
     } else {
-      node = nextNode;
+      valueNode = nextNode;
       break;
     }
   }
 
-  return { containingTrieNode, depth, valueNode: node as ValueNode<V> };
+  return { containingTrieNode: node, depth, index, valueNode: valueNode! };
 }
 
 function splitValueNode<V>(valueNode: ValueNode<V>, depth: number) {
