@@ -31,23 +31,22 @@ describe('map', () => {
     expect(fromMap).toBe(testValue);
   });
 
-  test('splits a value node correctly when it gets too large', () => {
+  test('correctly handles different keys with the same hash code', () => {
     jest.spyOn(hash, 'hash').mockImplementation(() => {
       return 987654321;
     });
 
-    const testValue = { testKey: 'test value' };
+    const testValue1 = { testKey: 'test value' };
     const testValue2 = { testKey: 'test value 2' };
-    const map = createMap<number, typeof testValue>();
+    const map = createMap<number, typeof testValue1>();
 
-    setInMap(map, 0, testValue);
-    const valueNode = map.root[Number(Object.keys(map.root)[0])] as ValueNode<typeof testValue>;
-    expect(valueNode.size).toBe(1);
-
-    valueNode.size = 32;
+    setInMap(map, 0, testValue1);
     setInMap(map, 1, testValue2);
 
-    const fromMap = getInMap(map, 1);
-    expect(fromMap).toBe(testValue2);
+    const fromMap1 = getInMap(map, 0);
+    expect(fromMap1).toBe(testValue1);
+
+    const fromMap2 = getInMap(map, 1);
+    expect(fromMap2).toBe(testValue2);
   });
 });

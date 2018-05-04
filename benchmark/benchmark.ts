@@ -1,5 +1,5 @@
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
-import {createMap, setInMap} from '../src/map';
+import {createMap, getInMap, setInMap} from '../src/map';
 
 setUseProxies(true);
 setAutoFreeze(false);
