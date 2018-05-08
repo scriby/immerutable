@@ -1,4 +1,4 @@
-import {createMap, getInMap, setInMap, ValueNode} from './map';
+import {createMap, getInMap, setInMap} from './map';
 import * as hash from './hash';
 
 describe('map', () => {
