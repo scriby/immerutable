@@ -1,4 +1,4 @@
-import {createBTree, insertInBTree} from './btree';
+import {createBTree, getBTreeIterable, insertInBTree} from './btree';
 
 describe('B-tree', () => {
   const COMPARER = (a: number, b: number) => a - b;
@@ -14,51 +14,15 @@ describe('B-tree', () => {
     expect(btree.items.length).toBe(0);
   });
 
-  test('inserts an item', () => {
-    const btree = createBTree(5);
+  test('gets iterators', () => {
+    for (let i = 1; i <= 30; i++) {
+      const btree = createBTree(5);
 
-    insertInBTree(btree, 1, COMPARER);
+      for (let j = 1; j <= i; j++) {
+        insertInBTree(btree, j, COMPARER);
+      }
 
-    expect(btree.items).toEqual([ { value: 1 } ]);
-  });
-
-  test('inserts multiple items', () => {
-    const btree = createBTree(5);
-
-    for (let i = 1; i <= 5; i++) {
-      insertInBTree(btree, i, COMPARER);
+      expect(Array.from(getBTreeIterable(btree))).toEqual(range(1, i));
     }
-
-    expect(btree.items).toEqual(valueRange(1, 5));
-  });
-
-  test('splits the root node', () => {
-    const btree = createBTree(5);
-
-    for (let i = 1; i <= 6; i++) {
-      insertInBTree(btree, i, COMPARER);
-    }
-
-    expect(btree.items).toEqual([
-      { items: valueRange(1, 2) },
-      wrapValueNode(3),
-      { items: valueRange(4, 6) },
-    ]);
-  });
-
-  test('splits a leaf node', () => {
-    const btree = createBTree(5);
-
-    for (let i = 1; i <= 9; i++) {
-      insertInBTree(btree, i, COMPARER);
-    }
-
-    expect(btree.items).toEqual([
-      { items: valueRange(1, 2) },
-      wrapValueNode(3),
-      { items: valueRange(4, 5) },
-      wrapValueNode(6),
-      { items: valueRange(7, 9) },
-    ]);
   });
 });

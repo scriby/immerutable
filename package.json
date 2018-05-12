@@ -9,15 +9,17 @@
     "typescript": "2.8.3"
   },
   "scripts": {
+    "benchmark": "node --expose-gc ./node_modules/.bin/jest benchmark --verbose",
+    "benchmark-debug": "node --inspect-brk --expose-gc ./node_modules/.bin/jest benchmark --verbose",
     "build": "tsc",
-    "test": "jest --watch",
-    "test-debug": "node --inspect-brk ./node_modules/.bin/jest --watch"
+    "test": "jest src --watch",
+    "test-debug": "node --inspect-brk ./node_modules/.bin/jest src --watch"
   },
   "jest": {
     "transform": {
       "^.+\\.ts$": "ts-jest"
     },
-    "testRegex": "(/__tests__/.*|(\\.|/)test)\\.ts$",
+    "testRegex": "((\\.|/)test)\\.ts$",
     "moduleFileExtensions": [
       "ts",
       "js",
