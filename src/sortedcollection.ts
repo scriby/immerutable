@@ -27,7 +27,7 @@ const MAX_ITEMS_PER_LEVEL = 127; //Must be odd for this implementation
 // Value node layout: [ Value, Value, Value, Value... ]
 // Root starts as a value node and then looks like an internal node once it gets too large and splits
 
-export class SortedSet<K extends Key, T> {
+export class SortedCollection<K extends Key, T> {
   private comparer: Comparer<T>;
   private maxItemsPerLevel: number;
 

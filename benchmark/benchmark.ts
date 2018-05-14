@@ -1,4 +1,4 @@
-import {SortedSet} from '../src/sortedset';
+import {SortedCollection} from '../src/sortedcollection';
 
 require('source-map-support').install();
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
@@ -34,26 +34,26 @@ function immerutableMap() {
 }
 
 function immerutableBtree() {
-  const sortedSet = new SortedSet<string, Obj>({
+  const sortedCollection = new SortedCollection<string, Obj>({
     comparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
   benchmark('immerutable btree: insert in increasing order', (iterations) => {
-    let state = { btree: sortedSet.create() };
+    let state = { btree: sortedCollection.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedSet.set(draft.btree, { data: i.toString(), order: i });
+        sortedCollection.set(draft.btree, { data: i.toString(), order: i });
       });
     }
   });
 
   benchmark('immerutable btree: insert in random order', (iterations) => {
-    let state = { btree: sortedSet.create() };
+    let state = { btree: sortedCollection.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedSet.set(draft.btree, { data: i.toString(), order: Math.random() });
+        sortedCollection.set(draft.btree, { data: i.toString(), order: Math.random() });
       });
     }
   });
