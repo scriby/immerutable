@@ -17,11 +17,11 @@ export interface StringIndexable<V> {
 }
 
 export interface TrieNode<V> {
-  [index: number]: TrieNode<V> | ValueNode<V> | SingleValueNode<V>;
+  [index: number]: TrieNode<V> | MultiValueNode<V> | SingleValueNode<V>;
   length: number;
 }
 
-export interface ValueNode<V> {
+export interface MultiValueNode<V> {
   map: NumberIndexable<V> & StringIndexable<V>;
 }
 
@@ -63,7 +63,7 @@ export class MapAdapter<K, V> {
     if (depth < MAX_DEPTH) {
       return (valueNode as SingleValueNode<V>).value;
     } else {
-      return (valueNode as ValueNode<V>).map[key as any];
+      return (valueNode as MultiValueNode<V>).map[key as any];
     }
   }
 
@@ -91,18 +91,18 @@ export class MapAdapter<K, V> {
         map.size++;
       }
 
-      (valueNode as ValueNode<V>).map[key] = value;
+      (valueNode as MultiValueNode<V>).map[key] = value;
     }
   }
 
   remove(map: Map<K, V>, key: Key) {
-    const {containingTrieNode, index, valueNode} = this.lookupValueNode(map, key);
+    const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
 
     if (valueNode) {
-      if (valueNode.hasOwnProperty('key')) {
+      if (depth < MAX_DEPTH) {
         delete containingTrieNode[index];
       } else {
-        delete ((valueNode as ValueNode<V>).map)[key];
+        delete ((valueNode as MultiValueNode<V>).map)[key];
       }
 
       map.size--;
@@ -110,13 +110,13 @@ export class MapAdapter<K, V> {
   }
 
   update(map: Map<K, V>, key: Key, updater: (item: V) => void) {
-    const {valueNode} = this.lookupValueNode(map, key);
+    const {depth, valueNode} = this.lookupValueNode(map, key);
 
     if (valueNode) {
-      if (valueNode.hasOwnProperty('key')) {
+      if (depth < MAX_DEPTH) {
         updater((valueNode as SingleValueNode<V>).value);
       } else {
-        updater((valueNode as ValueNode<V>).map[key]);
+        updater((valueNode as MultiValueNode<V>).map[key]);
       }
     }
   }
@@ -129,7 +129,7 @@ export class MapAdapter<K, V> {
     return { 'key': key, 'value': value };
   }
 
-  private createValueNode(): ValueNode<V> {
+  private createValueNode(): MultiValueNode<V> {
     return {
       map: Object.create(null),
     };
@@ -140,20 +140,20 @@ export class MapAdapter<K, V> {
     let node: TrieNode<V> = map.root;
     let index = 0;
     let depth = 1;
-    let valueNode: ValueNode<V> | SingleValueNode<V> | undefined;
+    let valueNode: MultiValueNode<V> | SingleValueNode<V> | undefined;
 
     while (depth <= MAX_DEPTH) {
       index = this.computePartialHashCode(hashCode, depth);
       depth++;
 
-      let nextNode: TrieNode<V> | ValueNode<V> | SingleValueNode<V> = node[index];
+      let nextNode: TrieNode<V> | MultiValueNode<V> | SingleValueNode<V> = node[index];
       if (nextNode === undefined) {
         valueNode = undefined;
         break;
       } else if (Array.isArray(nextNode)) {
         node = nextNode;
       } else {
-        valueNode = nextNode as ValueNode<V> | SingleValueNode<V>;
+        valueNode = nextNode as MultiValueNode<V> | SingleValueNode<V>;
         break;
       }
     }
