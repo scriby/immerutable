@@ -1,4 +1,5 @@
 import {hash} from './hash';
+import {SingleValueNode} from '../dist/src/map';
 
 export interface Map<K, V> {
   root: TrieNode<V>,
@@ -105,6 +106,18 @@ export class MapAdapter<K, V> {
       }
 
       map.size--;
+    }
+  }
+
+  update(map: Map<K, V>, key: Key, updater: (item: V) => void) {
+    const {valueNode} = this.lookupValueNode(map, key);
+
+    if (valueNode) {
+      if (valueNode.hasOwnProperty('key')) {
+        updater((valueNode as SingleValueNode<V>).value);
+      } else {
+        updater((valueNode as ValueNode<V>).map[key]);
+      }
     }
   }
 

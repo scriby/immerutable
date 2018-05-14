@@ -57,7 +57,7 @@ describe('map', () => {
     expect(map.size).toBe(2);
   });
 
-  test('removes by key from SingleValueNode', () => {
+  test('removes by key', () => {
     const adapter = new MapAdapter();
     const map = adapter.create();
     const testValue = { testKey: 'test value' };
@@ -98,5 +98,36 @@ describe('map', () => {
     adapter.remove(map, 1);
     expect(adapter.get(map, 1)).toBeUndefined();
     expect(map.size).toBe(0);
+  });
+
+  test('updates an item', () => {
+    const adapter = new MapAdapter<number, typeof testValue>();
+    const map = adapter.create();
+    const testValue = { testKey: 'test value' };
+
+    adapter.set(map, 1, testValue);
+    adapter.update(map, 1, item => { item.testKey = 'asdf'; });
+
+    expect(adapter.get(map, 1)).toEqual({ testKey: 'asdf' });
+  });
+
+  test('updates by key with multiple items sharing the same hash code', () => {
+    const adapter = new MapAdapter<number, typeof testValue1>();
+    const map = adapter.create();
+    jest.spyOn(hash, 'hash').mockImplementation(() => {
+      return 987654321;
+    });
+
+    const testValue1 = { testKey: 'test value' };
+    const testValue2 = { testKey: 'test value 2' };
+
+    adapter.set(map, 0, testValue1);
+    adapter.set(map, 1, testValue2);
+
+    adapter.update(map, 0, item => { item.testKey += ' a'; });
+    adapter.update(map, 1, item => { item.testKey += ' b'; });
+
+    expect(adapter.get(map, 0)).toEqual({ testKey: 'test value a' });
+    expect(adapter.get(map, 1)).toEqual({ testKey: 'test value 2 b' });
   });
 });
