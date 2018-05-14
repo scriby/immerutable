@@ -1,17 +1,19 @@
+import {SortedSet} from '../src/sortedset';
+
 require('source-map-support').install();
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
 import {createMap, getInMap, setInMap} from '../src/map';
-import {createBTree, insertInBTree} from '../src/btree';
 
 setUseProxies(true);
 setAutoFreeze(false);
 declare const global: any;
 
+const WARMUP_ITERATIONS = 1000;
 const ITERATIONS = 4000;
 type Obj = { order?: number, id?: number|string, data?: string };
 
 function benchmark(label: string, cb: (iterations: number) => void) {
-  cb(ITERATIONS / 5); // Run once to warm up V8
+  cb(WARMUP_ITERATIONS); // Warm up V8 to let it optimize the code
   global.gc();
 
   console.time(label);
@@ -32,24 +34,26 @@ function immerutableMap() {
 }
 
 function immerutableBtree() {
-  const comparer = (a: Obj, b: Obj) => a.order! - b.order!;
+  const sortedSet = new SortedSet<string, Obj>({
+    comparer: (a: Obj, b: Obj) => a.order! - b.order!,
+  });
 
   benchmark('immerutable btree: insert in increasing order', (iterations) => {
-    let state = { btree: createBTree<Obj>() };
+    let state = { btree: sortedSet.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        insertInBTree(draft.btree, { data: i.toString(), order: i }, comparer);
+        sortedSet.set(draft.btree, { data: i.toString(), order: i });
       });
     }
   });
 
   benchmark('immerutable btree: insert in random order', (iterations) => {
-    let state = { btree: createBTree<Obj>() };
+    let state = { btree: sortedSet.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        insertInBTree(draft.btree, { data: i.toString(), order: Math.random() }, comparer);
+        sortedSet.set(draft.btree, { data: i.toString(), order: Math.random() });
       });
     }
   });
@@ -89,8 +93,14 @@ function immerMap() {
   });
 }
 
-immerMap();
+function divider() {
+  console.log('-------------------------------------------');
+}
+
+//immerMap();
 immerutableMap();
 
-immerArray();
+divider();
+
+//immerArray();
 immerutableBtree();
