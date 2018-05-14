@@ -94,12 +94,26 @@ export class MapAdapter<K, V> {
     }
   }
 
+  remove(map: Map<K, V>, key: Key) {
+    const {containingTrieNode, index, valueNode} = this.lookupValueNode(map, key);
+
+    if (valueNode) {
+      if (valueNode.hasOwnProperty('key')) {
+        delete containingTrieNode[index];
+      } else {
+        delete ((valueNode as ValueNode<V>).map)[key];
+      }
+
+      map.size--;
+    }
+  }
+
   private createTrieNode(): TrieNode<V> {
     return [];
   }
 
   private createSingleValueNode(key: Key, value: V) {
-    return { key, value };
+    return { 'key': key, 'value': value };
   }
 
   private createValueNode(): ValueNode<V> {
@@ -131,7 +145,7 @@ export class MapAdapter<K, V> {
       }
     }
 
-    return { containingTrieNode: node, depth, index, valueNode: valueNode };
+    return { containingTrieNode: node, depth, index, valueNode };
   }
 
   private pushSingleValueNodeDown(trieNode: TrieNode<V>, index: number, depth: number) {
