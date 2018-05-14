@@ -1,8 +1,8 @@
-import {SortedCollection} from '../src/sortedcollection';
+import {SortedCollectionAdapter} from '../src/sortedcollection';
 
 require('source-map-support').install();
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
-import {createMap, getInMap, setInMap} from '../src/map';
+import {MapAdapter} from '../src/map';
 
 setUseProxies(true);
 setAutoFreeze(false);
@@ -23,18 +23,19 @@ function benchmark(label: string, cb: (iterations: number) => void) {
 
 function immerutableMap() {
   benchmark('immerutable map: setInMap', (iterations) => {
-    let state = { map: createMap<number, Obj>() };
+    const adapter = new MapAdapter();
+    let state = { map: adapter.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        setInMap(draft.map, i, { id: i, data: i.toString() });
+        adapter.set(draft.map, i, { id: i, data: i.toString() });
       });
     }
   });
 }
 
 function immerutableBtree() {
-  const sortedCollection = new SortedCollection<string, Obj>({
+  const sortedCollection = new SortedCollectionAdapter<string, Obj>({
     comparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
@@ -97,10 +98,10 @@ function divider() {
   console.log('-------------------------------------------');
 }
 
-//immerMap();
+immerMap();
 immerutableMap();
 
 divider();
 
-//immerArray();
+immerArray();
 immerutableBtree();
