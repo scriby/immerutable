@@ -5,7 +5,6 @@ export interface BTreeNode<T> {
 }
 
 export interface BTree<T> extends BTreeNode<T> {
-  maxItemsPerLevel: number;
   size: number;
 }
 
@@ -37,18 +36,20 @@ export class SortedCollection<K extends Key, T> {
   }) {
     this.comparer = args.comparer;
     this.maxItemsPerLevel = args.maxItemsPerLevel || MAX_ITEMS_PER_LEVEL;
+
+    if (this.maxItemsPerLevel % 2 === 0) throw new Error('maxItemsPerLevel must be odd');
   }
 
   create(): BTree<T> {
-    return this.createBTreeRootNode(this.maxItemsPerLevel);
+    return this.createBTreeRootNode();
   }
 
   set(tree: BTree<T>, value: T) {
-    this.insertInBTreeNode(tree, tree, null, value, tree.maxItemsPerLevel);
+    this.insertInBTreeNode(tree, tree, null, value);
   }
 
-  private insertInBTreeNode(node: BTreeNode<T>, parent: BTreeNode<T>|null, parentIndex: number|null, value: T, maxItemsPerLevel: number): void {
-    if (parent !== null && node.items.length >= maxItemsPerLevel) {
+  private insertInBTreeNode(node: BTreeNode<T>, parent: BTreeNode<T>|null, parentIndex: number|null, value: T): void {
+    if (parent !== null && node.items.length >= this.maxItemsPerLevel) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
       const isRightMostLeaf = parentIndex === parent.items.length - 1 && this.isLeafNode(node);
@@ -63,7 +64,7 @@ export class SortedCollection<K extends Key, T> {
         parent.items.splice(parentIndex, 1, left, mid, right);
       }
 
-      return this.insertInBTreeNode(parent, null, null, value, maxItemsPerLevel);
+      return this.insertInBTreeNode(parent, null, null, value);
     }
 
     if (this.isLeafNode(node)) {
@@ -76,7 +77,7 @@ export class SortedCollection<K extends Key, T> {
       }
     } else {
       const recursionIndex = this.findRecursionIndex(node, value);
-      this.insertInBTreeNode(node.items[recursionIndex] as BTreeNode<T>, node, recursionIndex, value, maxItemsPerLevel);
+      this.insertInBTreeNode(node.items[recursionIndex] as BTreeNode<T>, node, recursionIndex, value);
     }
   }
 
@@ -139,14 +140,11 @@ export class SortedCollection<K extends Key, T> {
     }
   }
 
-  private createBTreeRootNode(maxItemsPerLevel: number): BTree<T> {
-    if (maxItemsPerLevel % 2 === 0) throw new Error('maxItemsPerLevel must be odd');
-
+  private createBTreeRootNode(): BTree<T> {
     return {
       'items': [] as ItemsArray<T>,
-      maxItemsPerLevel,
       size: 0,
-    }
+    };
   }
 
   private createBTreeValueNode(value: T) {
