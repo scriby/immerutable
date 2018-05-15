@@ -1,24 +1,22 @@
-export type ItemsArray<T> = Array<BTreeNode<T>|BTreeLeafNode<T>|BTreeValueNode<T>>;
+export type ItemsArray<T> = Array<IBTreeNode<T>|IBTreeLeafNode<T>|IBTreeValueNode<T>>;
 
-export interface BTreeNode<T> {
+export interface IBTreeNode<T> {
   items: ItemsArray<T>;
 }
 
-export interface BTree<T> extends BTreeNode<T> {
+export interface IBTree<T> extends IBTreeNode<T> {
   size: number;
 }
 
-export interface BTreeValueNode<T> {
+export interface IBTreeValueNode<T> {
   value: T;
 }
 
-export interface BTreeLeafNode<T> {
-  items: Array<BTreeValueNode<T>>;
+export interface IBTreeLeafNode<T> {
+  items: Array<IBTreeValueNode<T>>;
 }
 
 export type Comparer<T> = (a: T, b: T) => number;
-
-export type Key = number | string;
 
 const MAX_ITEMS_PER_LEVEL = 127; //Must be odd for this implementation
 
@@ -26,7 +24,7 @@ const MAX_ITEMS_PER_LEVEL = 127; //Must be odd for this implementation
 // Value node layout: [ Value, Value, Value, Value... ]
 // Root starts as a value node and then looks like an internal node once it gets too large and splits
 
-export class SortedCollectionAdapter<K extends Key, T> {
+export class SortedCollectionAdapter<T> {
   private comparer: Comparer<T>;
   private maxItemsPerLevel: number;
 
@@ -40,15 +38,19 @@ export class SortedCollectionAdapter<K extends Key, T> {
     if (this.maxItemsPerLevel % 2 === 0) throw new Error('maxItemsPerLevel must be odd');
   }
 
-  create(): BTree<T> {
+  create(): IBTree<T> {
     return this.createBTreeRootNode();
   }
 
-  set(tree: BTree<T>, value: T) {
+  insert(tree: IBTree<T>, value: T): void {
     this.insertInBTreeNode(tree, tree, null, value);
   }
 
-  private insertInBTreeNode(node: BTreeNode<T>, parent: BTreeNode<T>|null, parentIndex: number|null, value: T): void {
+  getSize(tree: IBTree<T>): number {
+    return tree.size;
+  }
+
+  private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|null, parentIndex: number|null, value: T): void {
     if (parent !== null && node.items.length >= this.maxItemsPerLevel) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
@@ -68,7 +70,7 @@ export class SortedCollectionAdapter<K extends Key, T> {
     }
 
     if (this.isLeafNode(node)) {
-      const insertionIndex = this.findLeafNodeInsertionPoint(node as BTreeLeafNode<T>, value);
+      const insertionIndex = this.findLeafNodeInsertionPoint(node as IBTreeLeafNode<T>, value);
 
       if (insertionIndex >= node.items.length) {
         node.items.push(this.createBTreeValueNode(value));
@@ -77,15 +79,15 @@ export class SortedCollectionAdapter<K extends Key, T> {
       }
     } else {
       const recursionIndex = this.findRecursionIndex(node, value);
-      this.insertInBTreeNode(node.items[recursionIndex] as BTreeNode<T>, node, recursionIndex, value);
+      this.insertInBTreeNode(node.items[recursionIndex] as IBTreeNode<T>, node, recursionIndex, value);
     }
   }
 
-  private isLeafNode(node: BTreeNode<T>) {
+  private isLeafNode(node: IBTreeNode<T>) {
     return node.items.length === 0 || node.items[0].hasOwnProperty('value');
   }
 
-  private splitNode(node: BTreeNode<T>) {
+  private splitNode(node: IBTreeNode<T>) {
     const {items} = node;
     let midpoint = Math.floor(items.length / 2);
     if (midpoint % 2 === 0) midpoint += 1; //Midpoint needs to land on a value node when splitting an internal node
@@ -96,7 +98,7 @@ export class SortedCollectionAdapter<K extends Key, T> {
     };
   }
 
-  private splitNodeLeftHeavy(node: BTreeNode<T>) {
+  private splitNodeLeftHeavy(node: IBTreeNode<T>) {
     const {items} = node;
 
     return {
@@ -106,7 +108,7 @@ export class SortedCollectionAdapter<K extends Key, T> {
     };
   }
 
-  private findLeafNodeInsertionPoint(leafNode: BTreeLeafNode<T>, value: T) {
+  private findLeafNodeInsertionPoint(leafNode: IBTreeLeafNode<T>, value: T) {
     // Loop is optimized for inserting on the end. Consider using binary search if not inserting on the end.
     for (let i = leafNode.items.length - 1; i >= 0; i--) {
       const currValue = leafNode.items[i].value;
@@ -120,10 +122,10 @@ export class SortedCollectionAdapter<K extends Key, T> {
     return 0;
   }
 
-  private findRecursionIndex(node: BTreeNode<T>, value: T) {
+  private findRecursionIndex(node: IBTreeNode<T>, value: T) {
     // Loop is optimized for inserting on the end. Consider using binary search if not inserting on the end.
     for (let i = node.items.length - 2; i >= 0; i-=2) {
-      let currValue = (node.items[i] as BTreeValueNode<T>).value;
+      let currValue = (node.items[i] as IBTreeValueNode<T>).value;
       const comparison = this.comparer(value, currValue);
 
       if (comparison >= 0) {
@@ -134,13 +136,13 @@ export class SortedCollectionAdapter<K extends Key, T> {
     return 0;
   }
 
-  private createBTreeNode(items: Array<BTreeNode<T>|BTreeValueNode<T>> = []) {
+  private createBTreeNode(items: Array<IBTreeNode<T>|IBTreeValueNode<T>> = []) {
     return {
       'items': items,
     }
   }
 
-  private createBTreeRootNode(): BTree<T> {
+  private createBTreeRootNode(): IBTree<T> {
     return {
       'items': [] as ItemsArray<T>,
       size: 0,
@@ -153,7 +155,7 @@ export class SortedCollectionAdapter<K extends Key, T> {
     };
   }
 
-  getIterable(tree: BTree<T>): Iterable<T> {
+  getIterable(tree: IBTree<T>): Iterable<T> {
     type Frame = {index: number, items: ItemsArray<T>};
     const stack: Frame[] = [{ index: 0, items: tree.items }];
 

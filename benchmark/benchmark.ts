@@ -35,7 +35,7 @@ function immerutableMap() {
 }
 
 function immerutableBtree() {
-  const sortedCollection = new SortedCollectionAdapter<string, Obj>({
+  const sortedCollection = new SortedCollectionAdapter<Obj>({
     comparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
@@ -44,7 +44,7 @@ function immerutableBtree() {
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedCollection.set(draft.btree, { data: i.toString(), order: i });
+        sortedCollection.insert(draft.btree, { data: i.toString(), order: i });
       });
     }
   });
@@ -54,7 +54,7 @@ function immerutableBtree() {
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedCollection.set(draft.btree, { data: i.toString(), order: Math.random() });
+        sortedCollection.insert(draft.btree, { data: i.toString(), order: Math.random() });
       });
     }
   });

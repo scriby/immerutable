@@ -19,7 +19,7 @@ describe('B-tree', () => {
         const btree = adapter.create();
 
         for (let j = 1; j <= i; j++) {
-          adapter.set(btree, j);
+          adapter.insert(btree, j);
         }
 
         expect({ maxItemsPerLevel, array: Array.from(adapter.getIterable(btree)) })

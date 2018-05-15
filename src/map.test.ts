@@ -130,4 +130,15 @@ describe('map', () => {
     expect(adapter.get(map, 0)).toEqual({ testKey: 'test value a' });
     expect(adapter.get(map, 1)).toEqual({ testKey: 'test value 2 b' });
   });
+
+  test('Updates an item by returning a different value', () => {
+    const adapter = new MapAdapter<number, typeof testValue>();
+    const map = adapter.create();
+    const testValue = { testKey: 'test value' };
+
+    adapter.set(map, 1, testValue);
+    adapter.update(map, 1, () => ({ testKey: 'asdf' }));
+
+    expect(adapter.get(map, 1)).toEqual({ testKey: 'asdf' });
+  });
 });
