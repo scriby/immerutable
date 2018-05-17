@@ -5,14 +5,14 @@ describe('B-tree', () => {
   const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
 
   test('creates a sorted list', () => {
-    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 5 });
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 7 });
     const btree = adapter.create();
 
     expect(btree.items.length).toBe(0);
   });
 
   test('gets iterators (in-order insertion)', () => {
-    for (let maxItemsPerLevel = 5; maxItemsPerLevel <= 13; maxItemsPerLevel += 2) {
+    for (let maxItemsPerLevel = 7; maxItemsPerLevel <= 15; maxItemsPerLevel += 2) {
       const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel });
 
       for (let i = 1; i <= 100; i++) {

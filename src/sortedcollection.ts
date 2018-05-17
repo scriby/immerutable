@@ -36,6 +36,7 @@ export class SortedCollectionAdapter<T> {
     this.maxItemsPerLevel = args.maxItemsPerLevel || MAX_ITEMS_PER_LEVEL;
 
     if (this.maxItemsPerLevel % 2 === 0) throw new Error('maxItemsPerLevel must be odd');
+    if (this.maxItemsPerLevel < 7) throw new Error('maxItemsPerLevel must be at least 7'); //can't split <= 5 properly
   }
 
   create(): IBTree<T> {
@@ -123,17 +124,36 @@ export class SortedCollectionAdapter<T> {
   }
 
   private findRecursionIndex(node: IBTreeNode<T>, value: T) {
-    // Loop is optimized for inserting on the end. Consider using binary search if not inserting on the end.
-    for (let i = node.items.length - 2; i >= 0; i-=2) {
-      let currValue = (node.items[i] as IBTreeValueNode<T>).value;
-      const comparison = this.comparer(value, currValue);
-
-      if (comparison >= 0) {
-        return i + 1;
-      }
+    //Optimize in-order inserts
+    const lastItemValue = (node.items[node.items.length - 2] as IBTreeValueNode<T>).value;
+    if (this.comparer(value, lastItemValue) >= 0) {
+      return node.items.length - 1;
     }
 
-    return 0;
+    //This binary search is funky b/c compares against every other array entry, and then returns the next lower or
+    //higher pointer which should be followed.
+    const binarySearch = (low: number, high: number): number => {
+      if (high < low) {
+        return low - 1;
+      }
+
+      let mid = Math.floor(low + (high - low) / 2);
+      if (mid % 2 === 0) {
+        mid++;
+      }
+      const currValue = (node.items[mid] as IBTreeValueNode<T>).value;
+      const comparison = this.comparer(value, currValue);
+
+      if (comparison < 0) {
+        return binarySearch(low, mid - 2);
+      } else if (comparison > 0) {
+        return binarySearch(mid + 2, high);
+      } else {
+        return mid + 1;
+      }
+    };
+
+    return binarySearch(1, node.items.length - 4);
   }
 
   private createBTreeNode(items: Array<IBTreeNode<T>|IBTreeValueNode<T>> = []) {
