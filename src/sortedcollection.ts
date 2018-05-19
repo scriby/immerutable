@@ -1,7 +1,6 @@
-export type ItemsArray<T> = Array<IBTreeNode<T>|IBTreeLeafNode<T>|IBTreeValueNode<T>>;
-
 export interface IBTreeNode<T> {
-  items: ItemsArray<T>;
+  items: IBTreeValueNode<T>[];
+  children?: Array<IBTreeNode<T>>;
 }
 
 export interface IBTree<T> extends IBTreeNode<T> {
@@ -12,13 +11,9 @@ export interface IBTreeValueNode<T> {
   value: T;
 }
 
-export interface IBTreeLeafNode<T> {
-  items: Array<IBTreeValueNode<T>>;
-}
-
 export type Comparer<T> = (a: T, b: T) => number;
 
-const MAX_ITEMS_PER_LEVEL = 127; //Must be odd for this implementation
+const MAX_ITEMS_PER_LEVEL = 64; //Must be even for this implementation
 
 // Internal node layout: [ Child, Value, Child, Value, Child, ... ]
 // Value node layout: [ Value, Value, Value, Value... ]
@@ -27,6 +22,7 @@ const MAX_ITEMS_PER_LEVEL = 127; //Must be odd for this implementation
 export class SortedCollectionAdapter<T> {
   private comparer: Comparer<T>;
   private maxItemsPerLevel: number;
+  private minItemsPerLevel: number;
 
   constructor(args: {
     comparer: Comparer<T>,
@@ -35,8 +31,10 @@ export class SortedCollectionAdapter<T> {
     this.comparer = args.comparer;
     this.maxItemsPerLevel = args.maxItemsPerLevel || MAX_ITEMS_PER_LEVEL;
 
-    if (this.maxItemsPerLevel % 2 === 0) throw new Error('maxItemsPerLevel must be odd');
-    if (this.maxItemsPerLevel < 7) throw new Error('maxItemsPerLevel must be at least 7'); //can't split <= 5 properly
+    if (this.maxItemsPerLevel % 2 === 1) throw new Error('maxItemsPerLevel must be even');
+    if (this.maxItemsPerLevel < 3) throw new Error('maxItemsPerLevel must be at least 3');
+
+    this.minItemsPerLevel = Math.floor(this.maxItemsPerLevel / 2);
   }
 
   create(): IBTree<T> {
@@ -55,23 +53,24 @@ export class SortedCollectionAdapter<T> {
     if (parent !== null && node.items.length >= this.maxItemsPerLevel) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
-      const isRightMostLeaf = parentIndex === parent.items.length - 1 && this.isLeafNode(node);
+      const isRightMostLeaf = (parentIndex === null || parentIndex === parent.children!.length - 1) && this.isLeafNode(node);
       const {left, mid, right} = isRightMostLeaf ? this.splitNodeLeftHeavy(node) : this.splitNode(node);
 
       if (parentIndex === null) {
         // This is the root of the tree. Create a new root.
-        parent.items = [left, mid, right];
+        parent.items = [mid];
+        parent.children = [left, right];
       } else {
-        // Insert pointers to the new arrays and value into the parent node. There is guaranteed to be space because
-        // this algorithm preemptively splits full nodes on the way down the tree.
-        parent.items.splice(parentIndex, 1, left, mid, right);
+        // Insert pointers to the new arrays and value into the parent node.
+        parent.children!.splice(parentIndex, 1, left, right);
+        parent.items.splice(parentIndex, 0, mid);
       }
 
       return this.insertInBTreeNode(parent, null, null, value);
     }
 
     if (this.isLeafNode(node)) {
-      const insertionIndex = this.findLeafNodeInsertionPoint(node as IBTreeLeafNode<T>, value);
+      const insertionIndex = this.findLeafNodeInsertionPoint(node, value);
 
       if (insertionIndex >= node.items.length) {
         node.items.push(this.createBTreeValueNode(value));
@@ -79,33 +78,37 @@ export class SortedCollectionAdapter<T> {
         node.items.splice(insertionIndex, 0, this.createBTreeValueNode(value));
       }
     } else {
-      const recursionIndex = this.findRecursionIndex(node, value);
-      this.insertInBTreeNode(node.items[recursionIndex] as IBTreeNode<T>, node, recursionIndex, value);
+      const interiorNode = node as IBTreeNode<T>;
+      const recursionIndex = this.findRecursionIndex(interiorNode, value);
+      this.insertInBTreeNode(interiorNode.children![recursionIndex], interiorNode, recursionIndex, value);
     }
   }
 
   private isLeafNode(node: IBTreeNode<T>) {
-    return node.items.length === 0 || node.items[0].hasOwnProperty('value');
+    return (node as IBTreeNode<T>).children === undefined;
+  }
+
+  private isRootNode(node: IBTreeNode<T>) {
+    return (node as IBTree<T>).size != null;
   }
 
   private splitNode(node: IBTreeNode<T>) {
-    const {items} = node;
+    const {children, items} = node;
     let midpoint = Math.floor(items.length / 2);
-    if (midpoint % 2 === 0) midpoint += 1; //Midpoint needs to land on a value node when splitting an internal node
     return {
-      left: this.createBTreeNode(items.slice(0, midpoint)),
+      left: this.createBTreeNode(items.slice(0, midpoint), children && children.slice(0, midpoint + 1)),
       mid: items[midpoint],
-      right: this.createBTreeNode(items.slice(midpoint + 1)),
+      right: this.createBTreeNode(items.slice(midpoint + 1), children && children.slice(midpoint + 1)),
     };
   }
 
   private splitNodeLeftHeavy(node: IBTreeNode<T>) {
-    const {items} = node;
+    const {children, items} = node;
 
     return {
-      left: this.createBTreeNode(items.slice(0, items.length - 2)),
-      mid: items[items.length - 2],
-      right: this.createBTreeNode([items[items.length - 1]]),
+      left: this.createBTreeNode(items.slice(0, items.length - 1), children),
+      mid: items[items.length - 1],
+      right: this.createBTreeNode([], children && []),
     };
   }
 
@@ -124,47 +127,48 @@ export class SortedCollectionAdapter<T> {
   }
 
   private findRecursionIndex(node: IBTreeNode<T>, value: T) {
-    //Optimize in-order inserts
-    const lastItemValue = (node.items[node.items.length - 2] as IBTreeValueNode<T>).value;
-    if (this.comparer(value, lastItemValue) >= 0) {
-      return node.items.length - 1;
-    }
-
-    //This binary search is funky b/c compares against every other array entry, and then returns the next lower or
-    //higher pointer which should be followed.
-    const binarySearch = (low: number, high: number): number => {
-      if (high < low) {
-        return low - 1;
-      }
-
-      let mid = Math.floor(low + (high - low) / 2);
-      if (mid % 2 === 0) {
-        mid++;
-      }
-      const currValue = (node.items[mid] as IBTreeValueNode<T>).value;
-      const comparison = this.comparer(value, currValue);
-
-      if (comparison < 0) {
-        return binarySearch(low, mid - 2);
-      } else if (comparison > 0) {
-        return binarySearch(mid + 2, high);
-      } else {
-        return mid + 1;
-      }
-    };
-
-    return binarySearch(1, node.items.length - 4);
+    return this.binarySearch(node.items, value) + 1;
   }
 
-  private createBTreeNode(items: Array<IBTreeNode<T>|IBTreeValueNode<T>> = []) {
+  private binarySearch(items: IBTreeValueNode<T>[], value: T) {
+    if (items.length === 0) return 0;
+    const lastItemValue = (items[items.length - 1]).value;
+    if (this.comparer(value, lastItemValue) >= 0) {
+      return items.length - 1;
+    }
+
+    //-2 because we already compared with the last value
+    return this._binarySearch(items, value, 0, items.length - 2);
+  }
+
+  private _binarySearch(items: IBTreeValueNode<T>[], value: T, low: number, high: number): number {
+    if (high < low) {
+      return low - 1;
+    }
+
+    const mid = Math.floor(low + (high - low) / 2);
+    const currValue = items[mid].value;
+    const comparison = this.comparer(value, currValue);
+
+    if (comparison < 0) {
+      return this._binarySearch(items, value, low, mid - 1);
+    } else if (comparison > 0) {
+      return this._binarySearch(items, value, mid + 1, high);
+    } else {
+      return mid;
+    }
+  };
+
+  private createBTreeNode(items: IBTreeValueNode<T>[], children?: Array<IBTreeNode<T>>): IBTreeNode<T> {
     return {
-      'items': items,
+      children,
+      items,
     }
   }
 
   private createBTreeRootNode(): IBTree<T> {
     return {
-      'items': [] as ItemsArray<T>,
+      items: [] as IBTreeValueNode<T>[],
       size: 0,
     };
   }
@@ -176,23 +180,32 @@ export class SortedCollectionAdapter<T> {
   }
 
   getIterable(tree: IBTree<T>): Iterable<T> {
-    type Frame = {index: number, items: ItemsArray<T>};
-    const stack: Frame[] = [{ index: 0, items: tree.items }];
+    type Frame = {
+      index: number,
+      onChildren: boolean,
+      items: IBTreeValueNode<T>[],
+      children?: IBTreeNode<T>[]
+    };
+    const stack: Frame[] = [{ onChildren: true, index: 0, items: tree.items, children: tree.children }];
 
     function traverseToFurthestLeft(frame: Frame): T|undefined {
       if (frame === undefined) return undefined;
 
-      if (frame.index < frame.items.length) {
-        const item = frame.items[frame.index++];
-
-        if ('items' in item) {
-          const nextFrame = { items: item.items, index: 0 };
+      if (
+        frame.index < frame.items.length ||
+        (frame.children !== undefined && frame.onChildren && frame.index < frame.children.length)
+      ) {
+        if (frame.children !== undefined && frame.onChildren) {
+          const child = frame.children[frame.index];
+          const nextFrame = { items: child.items, onChildren: true, children: child.children, index: 0 };
           stack.push(nextFrame);
+
+          frame.onChildren = false;
           return traverseToFurthestLeft(nextFrame);
-        } else if ('value' in item) {
-          return item.value;
         } else {
-          throw new Error('Expected a BTreeNode or BTreeValueNode');
+          const item = frame.items[frame.index++];
+          frame.onChildren = true;
+          return item.value;
         }
       } else {
         stack.pop();
