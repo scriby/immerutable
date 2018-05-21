@@ -61,4 +61,30 @@ describe('B-tree', () => {
     }
   });
 
+  test('removes items (right rotation)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 10; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 3);
+    adapter.remove(btree, 2);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual([1].concat(range(4, 10)));
+  });
+
+  test('removes items (left rotation)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 10; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 9);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 8).concat(10));
+  });
 });

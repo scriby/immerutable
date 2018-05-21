@@ -11,6 +11,11 @@ export interface IBTreeValueNode<T> {
   value: T;
 }
 
+interface LookupNodeInfo<T> {
+  valueNode: IBTreeValueNode<T>;
+  parentPath: { index: number, node: IBTreeNode<T> }[];
+}
+
 export type Comparer<T> = (a: T, b: T) => number;
 
 const MAX_ITEMS_PER_LEVEL = 64; //Must be even for this implementation
@@ -131,22 +136,61 @@ export class SortedCollectionAdapter<T> {
   }
 
   remove(tree: IBTree<T>, value: T) {
-    const existing = this.lookupValue(tree, value);
+    const existingInfo = this.lookupValue(tree, value);
+    if (existingInfo === undefined) return;
 
-    return existing;
+    const containerInfo = existingInfo.parentPath[existingInfo.parentPath.length - 1];
+    containerInfo.node.items.splice(containerInfo.index, 1);
+
+    this.rebalance(existingInfo);
   }
 
-  private lookupValue(node: IBTreeNode<T>, value: T, parentPath: IBTreeNode<T>[] = []): { node: IBTreeValueNode<T>, parentPath: IBTreeNode<T>[]}|undefined {
+  private rebalance(nodeInfo: LookupNodeInfo<T>) {
+    const containerInfo = nodeInfo.parentPath[nodeInfo.parentPath.length - 1];
+    if (this.isRootNode(containerInfo.node)) return;
+
+    if (containerInfo.node.items.length < this.minItemsPerLevel) {
+      const parentInfo = nodeInfo.parentPath[nodeInfo.parentPath.length - 2]!;
+
+      if (this.isLeafNode(containerInfo.node)) {
+        const rightLeafSibling = parentInfo.node.children![parentInfo.index + 1];
+
+        if (rightLeafSibling && rightLeafSibling.items.length > this.minItemsPerLevel) {
+          const rightItem = rightLeafSibling.items.shift()!;
+          const separator = parentInfo.node.items.splice(parentInfo.index, 1, rightItem)[0];
+          containerInfo.node.items.push(separator);
+          return;
+        }
+
+        const leftLeafSibling = parentInfo.node.children![parentInfo.index - 1];
+
+        if (leftLeafSibling && leftLeafSibling.items.length > this.minItemsPerLevel) {
+          const leftItem = leftLeafSibling.items.pop()!;
+          const separator = parentInfo.node.items.splice(parentInfo.index - 1, 1, leftItem)[0];
+          containerInfo.node.items.unshift(separator);
+          return;
+        }
+      }
+    }
+
+    // TODO: other cases (both siblings deficient and internal value removal)
+  }
+
+  private lookupValue(
+    node: IBTreeNode<T>,
+    value: T,
+    parentPath: { index: number, node: IBTreeNode<T> }[] = []
+  ): LookupNodeInfo<T>|undefined {
     const index = this.binarySearch(node.items, value);
 
     const currNode = node.items[index];
     if (currNode && currNode.value === value) {
-      return { node: currNode, parentPath };
+      return { valueNode: currNode, parentPath: parentPath.concat({ node, index }) };
     }
 
     for (let prev = index - 1; ; prev--) {
       if (node.children !== undefined) {
-        const subtreeResult = this.lookupValue(node.children[prev + 1], value, parentPath.concat(node));
+        const subtreeResult = this.lookupValue(node.children[prev + 1], value, parentPath.concat({ node, index: prev + 1 }));
         if (subtreeResult !== undefined) {
           return subtreeResult;
         }
@@ -154,7 +198,7 @@ export class SortedCollectionAdapter<T> {
 
       const prevNode = node.items[prev];
       if (prevNode &&  prevNode.value === value) {
-        return { node: node.items[prev], parentPath };
+        return { valueNode: node.items[prev], parentPath: parentPath.concat({ node, index: prev }) };
       }
 
       if (!prevNode || this.comparer(value, prevNode.value) !== 0) {
@@ -167,7 +211,7 @@ export class SortedCollectionAdapter<T> {
 
     for (let next = index + 1; ; next++) {
       if (node.children !== undefined) {
-        const subtreeResult = this.lookupValue(node.children[next], value, parentPath.concat(node));
+        const subtreeResult = this.lookupValue(node.children[next], value, parentPath.concat({ node, index: next }));
         if (subtreeResult !== undefined) {
           return subtreeResult;
         }
@@ -175,7 +219,7 @@ export class SortedCollectionAdapter<T> {
 
       const nextNode = node.items[next];
       if (nextNode && nextNode.value === value) {
-        return { node: node.items[next], parentPath };
+        return { valueNode: node.items[next], parentPath: parentPath.concat({ node, index: next }) };
       }
 
       if (!nextNode || this.comparer(value, nextNode.value) !== 0) {
