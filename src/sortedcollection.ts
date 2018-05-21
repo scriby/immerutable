@@ -127,14 +127,68 @@ export class SortedCollectionAdapter<T> {
   }
 
   private findRecursionIndex(node: IBTreeNode<T>, value: T) {
-    return this.binarySearch(node.items, value) + 1;
+    return this.binarySearch(node.items, value);
+  }
+
+  remove(tree: IBTree<T>, value: T) {
+    const existing = this.lookupValue(tree, value);
+
+    return existing;
+  }
+
+  private lookupValue(node: IBTreeNode<T>, value: T, parentPath: IBTreeNode<T>[] = []): { node: IBTreeValueNode<T>, parentPath: IBTreeNode<T>[]}|undefined {
+    const index = this.binarySearch(node.items, value);
+
+    const currNode = node.items[index];
+    if (currNode && currNode.value === value) {
+      return { node: currNode, parentPath };
+    }
+
+    for (let prev = index - 1; ; prev--) {
+      if (node.children !== undefined) {
+        const subtreeResult = this.lookupValue(node.children[prev + 1], value, parentPath.concat(node));
+        if (subtreeResult !== undefined) {
+          return subtreeResult;
+        }
+      }
+
+      const prevNode = node.items[prev];
+      if (prevNode &&  prevNode.value === value) {
+        return { node: node.items[prev], parentPath };
+      }
+
+      if (!prevNode || this.comparer(value, prevNode.value) !== 0) {
+        break;
+      }
+    }
+
+    if (!currNode) return;
+    if (this.comparer(value, currNode.value) !== 0) return;
+
+    for (let next = index + 1; ; next++) {
+      if (node.children !== undefined) {
+        const subtreeResult = this.lookupValue(node.children[next], value, parentPath.concat(node));
+        if (subtreeResult !== undefined) {
+          return subtreeResult;
+        }
+      }
+
+      const nextNode = node.items[next];
+      if (nextNode && nextNode.value === value) {
+        return { node: node.items[next], parentPath };
+      }
+
+      if (!nextNode || this.comparer(value, nextNode.value) !== 0) {
+        break;
+      }
+    }
   }
 
   private binarySearch(items: IBTreeValueNode<T>[], value: T) {
     if (items.length === 0) return 0;
     const lastItemValue = (items[items.length - 1]).value;
     if (this.comparer(value, lastItemValue) >= 0) {
-      return items.length - 1;
+      return items.length;
     }
 
     //-2 because we already compared with the last value
@@ -143,7 +197,7 @@ export class SortedCollectionAdapter<T> {
 
   private _binarySearch(items: IBTreeValueNode<T>[], value: T, low: number, high: number): number {
     if (high < low) {
-      return low - 1;
+      return low;
     }
 
     const mid = Math.floor(low + (high - low) / 2);

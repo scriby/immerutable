@@ -38,8 +38,10 @@ describe('B-tree', () => {
     adapter.insert(btree, 9);
     adapter.insert(btree, 10);
     adapter.insert(btree, 12);
+    adapter.insert(btree, 13);
+    adapter.insert(btree, 0);
 
-    expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 12));
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(0, 13));
   });
 
   test('gets iterators (in-order insertion)', () => {
@@ -58,4 +60,5 @@ describe('B-tree', () => {
       }
     }
   });
+
 });
