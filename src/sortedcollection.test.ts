@@ -8,7 +8,7 @@ describe('B-tree', () => {
     const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
-    expect(btree.items.length).toBe(0);
+    expect(btree.root.items.length).toBe(0);
   });
 
   test('inserts 1 through 10 in order', () => {
@@ -86,5 +86,49 @@ describe('B-tree', () => {
     adapter.remove(btree, 9);
 
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 8).concat(10));
+  });
+
+  test('removes items (combine leaves, middle -> left, parent is root)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 10; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 7);
+    adapter.remove(btree, 6);
+    adapter.remove(btree, 5);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 4).concat(range(8, 10)));
+  });
+
+  test('removes items (combine leaves, left -> middle, parent is root)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 10; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 1);
+    adapter.remove(btree, 2);
+    adapter.remove(btree, 3);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(4, 10));
+  });
+
+  test('removes items (replace root)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 6; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 1);
+    adapter.remove(btree, 2);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(3, 6));
   });
 });

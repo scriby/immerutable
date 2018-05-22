@@ -1,10 +1,11 @@
 export interface IBTreeNode<T> {
+  isRoot?: boolean;
   items: IBTreeValueNode<T>[];
   children?: Array<IBTreeNode<T>>;
 }
 
-export interface IBTree<T> extends IBTreeNode<T> {
-  size: number;
+export interface IBTree<T> {
+  root: IBTreeNode<T>;
 }
 
 export interface IBTreeValueNode<T> {
@@ -47,11 +48,7 @@ export class SortedCollectionAdapter<T> {
   }
 
   insert(tree: IBTree<T>, value: T): void {
-    this.insertInBTreeNode(tree, tree, null, value);
-  }
-
-  getSize(tree: IBTree<T>): number {
-    return tree.size;
+    this.insertInBTreeNode(tree.root, tree.root, null, value);
   }
 
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|null, parentIndex: number|null, value: T): void {
@@ -65,6 +62,7 @@ export class SortedCollectionAdapter<T> {
         // This is the root of the tree. Create a new root.
         parent.items = [mid];
         parent.children = [left, right];
+        parent.isRoot = true;
       } else {
         // Insert pointers to the new arrays and value into the parent node.
         parent.children!.splice(parentIndex, 1, left, right);
@@ -89,12 +87,8 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  private isLeafNode(node: IBTreeNode<T>) {
+  private isLeafNode(node: IBTreeNode<T>): boolean {
     return (node as IBTreeNode<T>).children === undefined;
-  }
-
-  private isRootNode(node: IBTreeNode<T>) {
-    return (node as IBTree<T>).size != null;
   }
 
   private splitNode(node: IBTreeNode<T>) {
@@ -136,21 +130,21 @@ export class SortedCollectionAdapter<T> {
   }
 
   remove(tree: IBTree<T>, value: T) {
-    const existingInfo = this.lookupValue(tree, value);
+    const existingInfo = this.lookupValue(tree.root, value);
     if (existingInfo === undefined) return;
 
     const containerInfo = existingInfo.parentPath[existingInfo.parentPath.length - 1];
     containerInfo.node.items.splice(containerInfo.index, 1);
 
-    this.rebalance(existingInfo);
+    this.rebalance(existingInfo.parentPath);
   }
 
-  private rebalance(nodeInfo: LookupNodeInfo<T>) {
-    const containerInfo = nodeInfo.parentPath[nodeInfo.parentPath.length - 1];
-    if (this.isRootNode(containerInfo.node)) return;
+  private rebalance(parentPath: { index: number, node: IBTreeNode<T> }[]) {
+    const containerInfo = parentPath[parentPath.length - 1];
+    if (containerInfo.node.isRoot) return;
 
     if (containerInfo.node.items.length < this.minItemsPerLevel) {
-      const parentInfo = nodeInfo.parentPath[nodeInfo.parentPath.length - 2]!;
+      const parentInfo = parentPath[parentPath.length - 2]!;
 
       if (this.isLeafNode(containerInfo.node)) {
         const rightLeafSibling = parentInfo.node.children![parentInfo.index + 1];
@@ -170,10 +164,27 @@ export class SortedCollectionAdapter<T> {
           containerInfo.node.items.unshift(separator);
           return;
         }
+
+        //Both left and right siblings are deficient. Combine them into one node.
+        const copyInto = leftLeafSibling || containerInfo.node;
+        const copyFrom = leftLeafSibling ? containerInfo.node : rightLeafSibling;
+        const separator = parentInfo.node.items.splice(leftLeafSibling ? parentInfo.index - 1 : parentInfo.index, 1)[0];
+        parentInfo.node.children!.splice(leftLeafSibling ? parentInfo.index : parentInfo.index + 1, 1);
+        copyInto.items.push(separator);
+        copyInto.items.push.apply(copyInto.items, copyFrom.items);
+
+        if (parentInfo.node.items.length === 0 && parentInfo.node.isRoot) {
+          //Make copyInto the new root
+          parentInfo.node.items = copyInto.items;
+          parentInfo.node.children = copyInto.children;
+        } else if (parentInfo.node.items.length < this.minItemsPerLevel && !parentInfo.node.isRoot) {
+          parentPath.pop();
+          this.rebalance(parentPath);
+        }
       }
     }
 
-    // TODO: other cases (both siblings deficient and internal value removal)
+    // TODO: implement internal node deletion
   }
 
   private lookupValue(
@@ -257,17 +268,19 @@ export class SortedCollectionAdapter<T> {
     }
   };
 
-  private createBTreeNode(items: IBTreeValueNode<T>[], children?: Array<IBTreeNode<T>>): IBTreeNode<T> {
-    return {
-      children,
-      items,
+  private createBTreeNode(items: IBTreeValueNode<T>[], children?: Array<IBTreeNode<T>>, isRoot = false): IBTreeNode<T> {
+    if (isRoot) {
+      return { isRoot, items };
+    } else if (children) {
+      return { children, items };
+    } else {
+      return { items };
     }
   }
 
   private createBTreeRootNode(): IBTree<T> {
     return {
-      items: [] as IBTreeValueNode<T>[],
-      size: 0,
+      root: this.createBTreeNode([], undefined, true),
     };
   }
 
@@ -284,7 +297,7 @@ export class SortedCollectionAdapter<T> {
       items: IBTreeValueNode<T>[],
       children?: IBTreeNode<T>[]
     };
-    const stack: Frame[] = [{ onChildren: true, index: 0, items: tree.items, children: tree.children }];
+    const stack: Frame[] = [{ onChildren: true, index: 0, items: tree.root.items, children: tree.root.children }];
 
     function traverseToFurthestLeft(frame: Frame): T|undefined {
       if (frame === undefined) return undefined;
