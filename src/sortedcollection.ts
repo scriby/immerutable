@@ -52,10 +52,11 @@ export class SortedCollectionAdapter<T> {
   }
 
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|null, parentIndex: number|null, value: T): void {
-    if (parent !== null && node.items.length >= this.maxItemsPerLevel) {
+    const isLeafNode = this.isLeafNode(node);
+    if (parent !== null && ((isLeafNode && node.items.length >= this.maxItemsPerLevel) || (!isLeafNode && node.children!.length >= this.maxItemsPerLevel))) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
-      const isRightMostLeaf = (parentIndex === null || parentIndex === parent.children!.length - 1) && this.isLeafNode(node);
+      const isRightMostLeaf = (parentIndex === null || parentIndex === parent.children!.length - 1) && isLeafNode;
       const {left, mid, right} = isRightMostLeaf ? this.splitNodeLeftHeavy(node) : this.splitNode(node);
 
       if (parentIndex === null) {
@@ -72,7 +73,7 @@ export class SortedCollectionAdapter<T> {
       return this.insertInBTreeNode(parent, null, null, value);
     }
 
-    if (this.isLeafNode(node)) {
+    if (isLeafNode) {
       const insertionIndex = this.findLeafNodeInsertionPoint(node, value);
 
       if (insertionIndex >= node.items.length) {
@@ -135,56 +136,129 @@ export class SortedCollectionAdapter<T> {
 
     const containerInfo = existingInfo.parentPath[existingInfo.parentPath.length - 1];
     containerInfo.node.items.splice(containerInfo.index, 1);
+    const isLeafNode = this.isLeafNode(containerInfo.node);
 
-    this.rebalance(existingInfo.parentPath);
+    // When removing from an internal node, take the last item of the left subtree or first item of the right subtree.
+    // Then, start rebalancing from the leaf node from which the item was taken.
+    if (!isLeafNode) {
+      const leftSibling = containerInfo.node.children![containerInfo.index];
+      let valueInfo;
+      if (leftSibling) {
+        valueInfo = this.lookupRightMostValue(leftSibling, existingInfo.parentPath);
+      } else {
+        const rightSibling = containerInfo.node.children![containerInfo.index + 1];
+        valueInfo = this.lookupLeftMostValue(rightSibling, existingInfo.parentPath);
+      }
+
+      const valueContainer = valueInfo.parentPath[valueInfo.parentPath.length - 1];
+      valueContainer.node.items.splice(valueContainer.index);
+      containerInfo.node.items.splice(containerInfo.index, 0, valueInfo.valueNode);
+
+      this.rebalance(valueInfo.parentPath);
+    } else {
+      this.rebalance(existingInfo.parentPath);
+    }
   }
 
+  // Fix up a leaf or internal node which is deficient by taking items from nearby nodes or combining nodes.
   private rebalance(parentPath: { index: number, node: IBTreeNode<T> }[]) {
     const containerInfo = parentPath[parentPath.length - 1];
     if (containerInfo.node.isRoot) return;
+    const isLeafNode = this.isLeafNode(containerInfo.node);
 
-    if (containerInfo.node.items.length < this.minItemsPerLevel) {
+    // No rebalancing is necessary if the current node meets btree constraints
+    if (this.isNodeDeficient(containerInfo.node, isLeafNode)) {
       const parentInfo = parentPath[parentPath.length - 2]!;
+      const rightLeafSibling = parentInfo.node.children![parentInfo.index + 1];
 
-      if (this.isLeafNode(containerInfo.node)) {
-        const rightLeafSibling = parentInfo.node.children![parentInfo.index + 1];
+      // The node has a right sibling that can spare an item.
+      if (rightLeafSibling && !this.isNodeDeficient(rightLeafSibling, isLeafNode)) {
+        const rightItem = rightLeafSibling.items.shift()!;
+        const separator = parentInfo.node.items.splice(parentInfo.index, 1, rightItem)[0];
+        containerInfo.node.items.push(separator);
 
-        if (rightLeafSibling && rightLeafSibling.items.length > this.minItemsPerLevel) {
-          const rightItem = rightLeafSibling.items.shift()!;
-          const separator = parentInfo.node.items.splice(parentInfo.index, 1, rightItem)[0];
-          containerInfo.node.items.push(separator);
-          return;
+        if (!isLeafNode) {
+          containerInfo.node.children!.push(rightLeafSibling.children!.shift()!);
         }
 
-        const leftLeafSibling = parentInfo.node.children![parentInfo.index - 1];
+        return;
+      }
 
-        if (leftLeafSibling && leftLeafSibling.items.length > this.minItemsPerLevel) {
-          const leftItem = leftLeafSibling.items.pop()!;
-          const separator = parentInfo.node.items.splice(parentInfo.index - 1, 1, leftItem)[0];
-          containerInfo.node.items.unshift(separator);
-          return;
+      const leftLeafSibling = parentInfo.node.children![parentInfo.index - 1];
+
+      // The node has a left sibling that can spare an item.
+      if (leftLeafSibling && !this.isNodeDeficient(leftLeafSibling, isLeafNode)) {
+        const leftItem = leftLeafSibling.items.pop()!;
+        const separator = parentInfo.node.items.splice(parentInfo.index - 1, 1, leftItem)[0];
+        containerInfo.node.items.unshift(separator);
+
+        if (!isLeafNode) {
+          containerInfo.node.children!.unshift(leftLeafSibling.children!.pop()!);
         }
 
-        //Both left and right siblings are deficient. Combine them into one node.
-        const copyInto = leftLeafSibling || containerInfo.node;
-        const copyFrom = leftLeafSibling ? containerInfo.node : rightLeafSibling;
-        const separator = parentInfo.node.items.splice(leftLeafSibling ? parentInfo.index - 1 : parentInfo.index, 1)[0];
-        parentInfo.node.children!.splice(leftLeafSibling ? parentInfo.index : parentInfo.index + 1, 1);
-        copyInto.items.push(separator);
-        copyInto.items.push.apply(copyInto.items, copyFrom.items);
+        return;
+      }
 
-        if (parentInfo.node.items.length === 0 && parentInfo.node.isRoot) {
-          //Make copyInto the new root
-          parentInfo.node.items = copyInto.items;
-          parentInfo.node.children = copyInto.children;
-        } else if (parentInfo.node.items.length < this.minItemsPerLevel && !parentInfo.node.isRoot) {
-          parentPath.pop();
-          this.rebalance(parentPath);
-        }
+      const separator = parentInfo.node.items.splice(leftLeafSibling ? parentInfo.index - 1 : parentInfo.index, 1)[0];
+
+      //Both left and right siblings are deficient. Combine them into one node.
+      const copyInto = leftLeafSibling || containerInfo.node;
+      const copyFrom = leftLeafSibling ? containerInfo.node : rightLeafSibling;
+
+      parentInfo.node.children!.splice(leftLeafSibling ? parentInfo.index : parentInfo.index + 1, 1);
+      parentInfo.index--;
+      copyInto.items.push(separator);
+      copyInto.items.push.apply(copyInto.items, copyFrom.items);
+
+      if (!isLeafNode) {
+        copyInto.children!.push.apply(copyInto.children, copyFrom.children);
+      }
+
+      // If the current root is empty, make the current node the new root.
+      if (parentInfo.node.items.length === 0 && parentInfo.node.isRoot) {
+        //Make copyInto the new root
+        parentInfo.node.items = copyInto.items;
+        parentInfo.node.children = copyInto.children;
+      } else {
+        // Rebalance the parent (which may or may not need rebalancing)
+        parentPath.pop();
+        this.rebalance(parentPath);
       }
     }
+  }
 
-    // TODO: implement internal node deletion
+  isNodeDeficient(node: IBTreeNode<T>, isLeafNode: boolean) {
+    return (isLeafNode && node.items.length < this.minItemsPerLevel) ||
+      (!isLeafNode && node.children!.length < this.minItemsPerLevel);
+  }
+
+  private lookupLeftMostValue(
+    node: IBTreeNode<T>,
+    parentPath: { index: number, node: IBTreeNode<T> }[] = []
+  ): LookupNodeInfo<T> {
+    if (this.isLeafNode(node)) {
+      return { valueNode: node.items[0], parentPath: parentPath.concat({ node, index: 0 }) };
+    } else {
+      return this.lookupLeftMostValue(node.children![0], parentPath.concat({ node, index: 0 }));
+    }
+  }
+
+  private lookupRightMostValue(
+    node: IBTreeNode<T>,
+    parentPath: { index: number, node: IBTreeNode<T> }[] = []
+  ): LookupNodeInfo<T> {
+
+    if (this.isLeafNode(node)) {
+      return {
+        valueNode: node.items[node.items.length - 1],
+        parentPath: parentPath.concat({ node, index: node.items.length - 1 })
+      };
+    } else {
+      return this.lookupRightMostValue(
+        node.children![node.children!.length - 1],
+        parentPath.concat({ node, index: node.children!.length - 1 })
+      );
+    }
   }
 
   private lookupValue(
@@ -194,13 +268,14 @@ export class SortedCollectionAdapter<T> {
   ): LookupNodeInfo<T>|undefined {
     const index = this.binarySearch(node.items, value);
 
+    //TODO: index is one greater than the item if the item is found
     const currNode = node.items[index];
     if (currNode && currNode.value === value) {
       return { valueNode: currNode, parentPath: parentPath.concat({ node, index }) };
     }
 
     for (let prev = index - 1; ; prev--) {
-      if (node.children !== undefined) {
+      if (node.children !== undefined && node.children.length > 1) {
         const subtreeResult = this.lookupValue(node.children[prev + 1], value, parentPath.concat({ node, index: prev + 1 }));
         if (subtreeResult !== undefined) {
           return subtreeResult;

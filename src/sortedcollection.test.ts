@@ -131,4 +131,77 @@ describe('B-tree', () => {
 
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(3, 6));
   });
+
+  test('removes items (internal node - take from left subtree)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 8);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 7).concat(range(9, 20)));
+  });
+
+  test('removes items (internal node - take from left subtree with rebalance)', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.insert(btree, i);
+    }
+
+    adapter.remove(btree, 8);
+    adapter.remove(btree, 7);
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 6).concat(range(9, 20)));
+  });
+
+  test('removes items descending from 20', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.insert(btree, i);
+    }
+
+    for (let i = 20; i >= 1; i--) {
+      adapter.remove(btree, i);
+
+      expect(Array.from(adapter.getIterable(btree))).toEqual(i === 1 ? [] : range(1, i - 1));
+    }
+  });
+
+  test('removes items ascending to 20', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.insert(btree, i);
+    }
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.remove(btree, i);
+
+      expect(Array.from(adapter.getIterable(btree))).toEqual(i === 20 ? [] : range(i + 1, 20));
+    }
+  });
+
+  test('removes items from middle', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+    const removalOrder = [10, 11, 9, 12, 8, 13, 7, 14, 6, 15, 5, 16, 4, 17, 3, 18, 2, 19, 1, 20];
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.insert(btree, i);
+    }
+
+    for (let i = 0; i < 20; i++) {
+      adapter.remove(btree, removalOrder[i]);
+
+      expect(Array.from(adapter.getIterable(btree))).toEqual(removalOrder.slice(i + 1).sort((a, b) => a - b));
+    }
+  });
 });
