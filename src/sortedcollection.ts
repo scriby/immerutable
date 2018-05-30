@@ -133,18 +133,7 @@ export class SortedCollectionAdapter<T> {
   }
 
   private findLeafNodeInsertionPoint(leafNode: IBTreeNode<T>, value: T) {
-    // Loop is optimized for inserting on the end.
-    // TODO: Use binary search if not inserting on the end.
-    for (let i = leafNode.items.length - 1; i >= 0; i--) {
-      const currValue = leafNode.items[i].value;
-      const comparison = this.comparer(value, currValue);
-
-      if (comparison >= 0) {
-        return i + 1;
-      }
-    }
-
-    return 0;
+    return this.binarySearch(leafNode.items, value);
   }
 
   private findRecursionIndex(node: IBTreeNode<T>, value: T) {
