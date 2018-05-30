@@ -58,6 +58,16 @@ function immerutableBtree() {
       });
     }
   });
+
+  benchmark('immerutable btree: insert in decreasing order', (iterations) => {
+    let state = { btree: sortedCollection.create() };
+
+    for (let i = iterations - 1; i >= 0; i--) {
+      state = produce(state, (draft: typeof state) => {
+        sortedCollection.insert(draft.btree, { data: i.toString(), order: i });
+      });
+    }
+  });
 }
 
 function immerArray() {
@@ -77,6 +87,16 @@ function immerArray() {
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
         draft.array.splice(Math.floor(Math.random() * i), 0, { id: i, data: i.toString() });
+      });
+    }
+  });
+
+  benchmark('immer array: insert in decreasing order', (iterations) => {
+    let state = { array: [] as Obj[] };
+
+    for (let i = iterations - 1; i >= 0 ; i--) {
+      state = produce(state, (draft: typeof state) => {
+        draft.array.unshift({ id: i, data: i.toString() });
       });
     }
   });

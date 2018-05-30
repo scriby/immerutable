@@ -24,7 +24,7 @@ export interface LookupNodeInfo<T> {
 
 export type Comparer<T> = (a: T, b: T) => number;
 
-const MAX_ITEMS_PER_LEVEL = 64; //Must be even for this implementation
+const MAX_ITEMS_PER_LEVEL = 64; // Must be even for this implementation
 
 // Internal node layout: [ Child, Value, Child, Value, Child, ... ]
 // Value node layout: [ Value, Value, Value, Value... ]
@@ -65,7 +65,7 @@ export class SortedCollectionAdapter<T> {
       (proceedingItem && this.comparer(value, proceedingItem) < 0) ||
       (nextItem && this.comparer(value, nextItem) > 0)
     ) {
-      //Item is out of order, remove and re-insert it to fix up the order.
+      // Item is out of order, remove and re-insert it to fix up the order.
       this.removeByPath(nodeInfo);
       this.insert(tree, value);
     }
@@ -76,8 +76,9 @@ export class SortedCollectionAdapter<T> {
     if (parent !== null && ((isLeafNode && node.items.length >= this.maxItemsPerLevel) || (!isLeafNode && node.children!.length >= this.maxItemsPerLevel))) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
-      const isRightMostLeaf = (parentIndex === null || parentIndex === parent.children!.length - 1) && isLeafNode;
-      const {left, mid, right} = isRightMostLeaf ? this.splitNodeLeftHeavy(node) : this.splitNode(node);
+      const isRightMostLeaf = isLeafNode && parentIndex !== null && parentIndex === parent.children!.length - 1;
+      const isLeftMostLeaf = isLeafNode && parentIndex === 0;
+      const {left, mid, right} = isRightMostLeaf ? this.splitLeafNodeLeftHeavy(node) : isLeftMostLeaf ? this.splitLeafNodeRightHeavy(node) : this.splitNode(node);
 
       if (parentIndex === null) {
         // This is the root of the tree. Create a new root.
@@ -122,13 +123,23 @@ export class SortedCollectionAdapter<T> {
     };
   }
 
-  private splitNodeLeftHeavy(node: IBTreeNode<T>) {
-    const {children, items} = node;
+  private splitLeafNodeLeftHeavy(node: IBTreeNode<T>) {
+    const {items} = node;
 
     return {
-      left: this.createBTreeNode(items.slice(0, items.length - 1), children),
+      left: this.createBTreeNode(items.slice(0, items.length - 1)),
       mid: items[items.length - 1],
-      right: this.createBTreeNode([], children && []),
+      right: this.createBTreeNode([]),
+    };
+  }
+
+  private splitLeafNodeRightHeavy(node: IBTreeNode<T>) {
+    const {items} = node;
+
+    return {
+      left: this.createBTreeNode([]),
+      mid: items[0],
+      right: this.createBTreeNode(items.slice(1)),
     };
   }
 
@@ -215,7 +226,7 @@ export class SortedCollectionAdapter<T> {
 
       const separator = parentInfo.node.items.splice(leftLeafSibling ? parentInfo.index - 1 : parentInfo.index, 1)[0];
 
-      //Both left and right siblings are deficient. Combine them into one node.
+      // Both left and right siblings are deficient. Combine them into one node.
       const copyInto = leftLeafSibling || containerInfo.node;
       const copyFrom = leftLeafSibling ? containerInfo.node : rightLeafSibling;
 
@@ -230,7 +241,7 @@ export class SortedCollectionAdapter<T> {
 
       // If the current root is empty, make the current node the new root.
       if (parentInfo.node.items.length === 0 && parentInfo.node.isRoot) {
-        //Make copyInto the new root
+        // Make copyInto the new root
         parentInfo.node.items = copyInto.items;
         parentInfo.node.children = copyInto.children;
       } else {
@@ -296,11 +307,11 @@ export class SortedCollectionAdapter<T> {
       const nodeInfo = parentPath[i];
       if (nodeInfo.index > 0) {
         if (i === parentPath.length - 1) {
-          //Leaf node
+          // Leaf node
           return nodeInfo.node.items[nodeInfo.index - 1].value;
         } else {
-          //Internal node
-          const child = nodeInfo.node.children![nodeInfo.index];
+          // Internal node
+          const child = nodeInfo.node.children![nodeInfo.index - 1];
           return this.getFurthestRightValue(child);
         }
       }
@@ -312,10 +323,10 @@ export class SortedCollectionAdapter<T> {
       const nodeInfo = parentPath[i];
       if (nodeInfo.index < nodeInfo.node.items.length - 1) {
         if (i === parentPath.length - 1) {
-          //Leaf node
+          // Leaf node
           return nodeInfo.node.items[nodeInfo.index + 1].value;
         } else {
-          //Internal node
+          // Internal node
           const child = nodeInfo.node.children![nodeInfo.index + 1];
           return this.getFurthestLeftValue(child);
         }
@@ -337,7 +348,7 @@ export class SortedCollectionAdapter<T> {
   ): LookupNodeInfo<T>|undefined {
     const index = this.binarySearch(node.items, value);
 
-    //TODO: index is one greater than the item if the item is found
+    // TODO: index is one greater than the item if the item is found
     const currNode = node.items[index];
     if (currNode && currNode.value === value) {
       return { valueNode: currNode, parentPath: parentPath.concat({ node, index }) };
@@ -385,13 +396,21 @@ export class SortedCollectionAdapter<T> {
 
   private binarySearch(items: IBTreeValueNode<T>[], value: T) {
     if (items.length === 0) return 0;
+
+    // Optimize increasing order insertions.
     const lastItemValue = (items[items.length - 1]).value;
     if (this.comparer(value, lastItemValue) >= 0) {
       return items.length;
     }
 
-    //-2 because we already compared with the last value
-    return this._binarySearch(items, value, 0, items.length - 2);
+    // Optimize decreasing order insertions.
+    const firstItemValue = items[0].value;
+    if (this.comparer(value, firstItemValue) <= 0) {
+      return 0;
+    }
+
+    // -2 because we already compared with the last value
+    return this._binarySearch(items, value, 1, items.length - 2);
   }
 
   private _binarySearch(items: IBTreeValueNode<T>[], value: T, low: number, high: number): number {
