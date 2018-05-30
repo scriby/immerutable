@@ -12,9 +12,14 @@ export interface IBTreeValueNode<T> {
   value: T;
 }
 
-interface LookupNodeInfo<T> {
+export type ParentPath<T> = {
+  index: number;
+  node: IBTreeNode<T>;
+}[];
+
+export interface LookupNodeInfo<T> {
   valueNode: IBTreeValueNode<T>;
-  parentPath: { index: number, node: IBTreeNode<T> }[];
+  parentPath: ParentPath<T>;
 }
 
 export type Comparer<T> = (a: T, b: T) => number;
@@ -49,6 +54,21 @@ export class SortedCollectionAdapter<T> {
 
   insert(tree: IBTree<T>, value: T): void {
     this.insertInBTreeNode(tree.root, tree.root, null, value);
+  }
+
+  ensureSortedOrderOfNode(tree: IBTree<T>, nodeInfo: LookupNodeInfo<T>): void {
+    const proceedingItem = this.getPreviousValue(nodeInfo.parentPath);
+    const nextItem = this.getNextValue(nodeInfo.parentPath);
+    const value = nodeInfo.valueNode.value;
+
+    if (
+      (proceedingItem && this.comparer(value, proceedingItem) < 0) ||
+      (nextItem && this.comparer(value, nextItem) > 0)
+    ) {
+      //Item is out of order, remove and re-insert it to fix up the order.
+      this.removeByPath(nodeInfo);
+      this.insert(tree, value);
+    }
   }
 
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|null, parentIndex: number|null, value: T): void {
@@ -112,8 +132,9 @@ export class SortedCollectionAdapter<T> {
     };
   }
 
-  private findLeafNodeInsertionPoint(leafNode: IBTreeLeafNode<T>, value: T) {
-    // Loop is optimized for inserting on the end. Consider using binary search if not inserting on the end.
+  private findLeafNodeInsertionPoint(leafNode: IBTreeNode<T>, value: T) {
+    // Loop is optimized for inserting on the end.
+    // TODO: Use binary search if not inserting on the end.
     for (let i = leafNode.items.length - 1; i >= 0; i--) {
       const currValue = leafNode.items[i].value;
       const comparison = this.comparer(value, currValue);
@@ -130,11 +151,15 @@ export class SortedCollectionAdapter<T> {
     return this.binarySearch(node.items, value);
   }
 
-  remove(tree: IBTree<T>, value: T) {
-    const existingInfo = this.lookupValue(tree.root, value);
+  remove(tree: IBTree<T>, value: T): void {
+    const existingInfo = this.lookupValuePath(tree, value);
     if (existingInfo === undefined) return;
 
-    const containerInfo = existingInfo.parentPath[existingInfo.parentPath.length - 1];
+    return this.removeByPath(existingInfo);
+  }
+
+  private removeByPath(nodeInfo: LookupNodeInfo<T>): void {
+    const containerInfo = nodeInfo.parentPath[nodeInfo.parentPath.length - 1];
     containerInfo.node.items.splice(containerInfo.index, 1);
     const isLeafNode = this.isLeafNode(containerInfo.node);
 
@@ -144,10 +169,10 @@ export class SortedCollectionAdapter<T> {
       const leftSibling = containerInfo.node.children![containerInfo.index];
       let valueInfo;
       if (leftSibling) {
-        valueInfo = this.lookupRightMostValue(leftSibling, existingInfo.parentPath);
+        valueInfo = this.lookupRightMostValueWithParentPath(leftSibling, nodeInfo.parentPath);
       } else {
         const rightSibling = containerInfo.node.children![containerInfo.index + 1];
-        valueInfo = this.lookupLeftMostValue(rightSibling, existingInfo.parentPath);
+        valueInfo = this.lookupLeftMostValueWithParentPath(rightSibling, nodeInfo.parentPath);
       }
 
       const valueContainer = valueInfo.parentPath[valueInfo.parentPath.length - 1];
@@ -156,12 +181,12 @@ export class SortedCollectionAdapter<T> {
 
       this.rebalance(valueInfo.parentPath);
     } else {
-      this.rebalance(existingInfo.parentPath);
+      this.rebalance(nodeInfo.parentPath);
     }
   }
 
   // Fix up a leaf or internal node which is deficient by taking items from nearby nodes or combining nodes.
-  private rebalance(parentPath: { index: number, node: IBTreeNode<T> }[]) {
+  private rebalance(parentPath: ParentPath<T>) {
     const containerInfo = parentPath[parentPath.length - 1];
     if (containerInfo.node.isRoot) return;
     const isLeafNode = this.isLeafNode(containerInfo.node);
@@ -232,20 +257,20 @@ export class SortedCollectionAdapter<T> {
       (!isLeafNode && node.children!.length < this.minItemsPerLevel);
   }
 
-  private lookupLeftMostValue(
+  private lookupLeftMostValueWithParentPath(
     node: IBTreeNode<T>,
-    parentPath: { index: number, node: IBTreeNode<T> }[] = []
+    parentPath: ParentPath<T> = []
   ): LookupNodeInfo<T> {
     if (this.isLeafNode(node)) {
       return { valueNode: node.items[0], parentPath: parentPath.concat({ node, index: 0 }) };
     } else {
-      return this.lookupLeftMostValue(node.children![0], parentPath.concat({ node, index: 0 }));
+      return this.lookupLeftMostValueWithParentPath(node.children![0], parentPath.concat({ node, index: 0 }));
     }
   }
 
-  private lookupRightMostValue(
+  private lookupRightMostValueWithParentPath(
     node: IBTreeNode<T>,
-    parentPath: { index: number, node: IBTreeNode<T> }[] = []
+    parentPath: ParentPath<T> = []
   ): LookupNodeInfo<T> {
 
     if (this.isLeafNode(node)) {
@@ -254,17 +279,72 @@ export class SortedCollectionAdapter<T> {
         parentPath: parentPath.concat({ node, index: node.items.length - 1 })
       };
     } else {
-      return this.lookupRightMostValue(
+      return this.lookupRightMostValueWithParentPath(
         node.children![node.children!.length - 1],
         parentPath.concat({ node, index: node.children!.length - 1 })
       );
     }
   }
 
-  private lookupValue(
+  private getFurthestLeftValue(node: IBTreeNode<T>): T {
+    if (this.isLeafNode(node)) {
+      return node.items[0].value;
+    } else {
+      return this.getFurthestLeftValue(node.children![0]);
+    }
+  }
+
+  private getFurthestRightValue(node: IBTreeNode<T>): T {
+    if (this.isLeafNode(node)) {
+      return node.items[node.items.length - 1].value;
+    } else {
+      return this.getFurthestRightValue(node.children![node.children!.length - 1]);
+    }
+  }
+
+  private getPreviousValue(parentPath: ParentPath<T>): T|undefined {
+    for (let i = parentPath.length - 1; i >= 0; i--) {
+      const nodeInfo = parentPath[i];
+      if (nodeInfo.index > 0) {
+        if (i === parentPath.length - 1) {
+          //Leaf node
+          return nodeInfo.node.items[nodeInfo.index - 1].value;
+        } else {
+          //Internal node
+          const child = nodeInfo.node.children![nodeInfo.index];
+          return this.getFurthestRightValue(child);
+        }
+      }
+    }
+  }
+
+  private getNextValue(parentPath: ParentPath<T>): T|undefined {
+    for (let i = parentPath.length - 1; i >= 0; i--) {
+      const nodeInfo = parentPath[i];
+      if (nodeInfo.index < nodeInfo.node.items.length - 1) {
+        if (i === parentPath.length - 1) {
+          //Leaf node
+          return nodeInfo.node.items[nodeInfo.index + 1].value;
+        } else {
+          //Internal node
+          const child = nodeInfo.node.children![nodeInfo.index + 1];
+          return this.getFurthestLeftValue(child);
+        }
+      }
+    }
+  }
+
+  lookupValuePath(
+    tree: IBTree<T>,
+    value: T,
+  ): LookupNodeInfo<T>|undefined {
+    return this._lookupValuePath(tree.root, value);
+  }
+
+  private _lookupValuePath(
     node: IBTreeNode<T>,
     value: T,
-    parentPath: { index: number, node: IBTreeNode<T> }[] = []
+    parentPath: ParentPath<T> = []
   ): LookupNodeInfo<T>|undefined {
     const index = this.binarySearch(node.items, value);
 
@@ -276,7 +356,7 @@ export class SortedCollectionAdapter<T> {
 
     for (let prev = index - 1; ; prev--) {
       if (node.children !== undefined && node.children.length > 1) {
-        const subtreeResult = this.lookupValue(node.children[prev + 1], value, parentPath.concat({ node, index: prev + 1 }));
+        const subtreeResult = this._lookupValuePath(node.children[prev + 1], value, parentPath.concat({ node, index: prev + 1 }));
         if (subtreeResult !== undefined) {
           return subtreeResult;
         }
@@ -297,7 +377,7 @@ export class SortedCollectionAdapter<T> {
 
     for (let next = index + 1; ; next++) {
       if (node.children !== undefined) {
-        const subtreeResult = this.lookupValue(node.children[next], value, parentPath.concat({ node, index: next }));
+        const subtreeResult = this._lookupValuePath(node.children[next], value, parentPath.concat({ node, index: next }));
         if (subtreeResult !== undefined) {
           return subtreeResult;
         }
