@@ -211,6 +211,24 @@ describe('B-tree', () => {
     }
   });
 
+  test('removes one instance of duplicates', () => {
+    const adapter = new SortedCollectionAdapter({ comparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.insert(btree, i);
+      adapter.insert(btree, i);
+    }
+
+    expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 20).concat(range(1, 20)).sort(comparer));
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.remove(btree, i);
+
+      expect(Array.from(adapter.getIterable(btree))).toEqual((i === 20 ? [] : range(i + 1, 20)).concat(range(1, 20)).sort(comparer));
+    }
+  });
+
   test('reorders an item', () => {
     const adapter = new SortedCollectionAdapter({ comparer: objComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();

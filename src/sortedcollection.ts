@@ -197,7 +197,7 @@ export class SortedCollectionAdapter<T> {
       const rightLeafSibling = parentInfo.node.children![parentInfo.index + 1];
 
       // The node has a right sibling that can spare an item.
-      if (rightLeafSibling && !this.isNodeDeficient(rightLeafSibling, isLeafNode)) {
+      if (rightLeafSibling && this.canNodeLoseItem(rightLeafSibling, isLeafNode)) {
         const rightItem = rightLeafSibling.items.shift()!;
         const separator = parentInfo.node.items.splice(parentInfo.index, 1, rightItem)[0];
         containerInfo.node.items.push(separator);
@@ -212,7 +212,7 @@ export class SortedCollectionAdapter<T> {
       const leftLeafSibling = parentInfo.node.children![parentInfo.index - 1];
 
       // The node has a left sibling that can spare an item.
-      if (leftLeafSibling && !this.isNodeDeficient(leftLeafSibling, isLeafNode)) {
+      if (leftLeafSibling && this.canNodeLoseItem(leftLeafSibling, isLeafNode)) {
         const leftItem = leftLeafSibling.items.pop()!;
         const separator = parentInfo.node.items.splice(parentInfo.index - 1, 1, leftItem)[0];
         containerInfo.node.items.unshift(separator);
@@ -255,6 +255,11 @@ export class SortedCollectionAdapter<T> {
   isNodeDeficient(node: IBTreeNode<T>, isLeafNode: boolean) {
     return (isLeafNode && node.items.length < this.minItemsPerLevel) ||
       (!isLeafNode && node.children!.length < this.minItemsPerLevel);
+  }
+
+  canNodeLoseItem(node: IBTreeNode<T>, isLeafNode: boolean) {
+    return (isLeafNode && node.items.length > this.minItemsPerLevel) ||
+      (!isLeafNode && node.children!.length > this.minItemsPerLevel);
   }
 
   private lookupLeftMostValueWithParentPath(
@@ -348,7 +353,6 @@ export class SortedCollectionAdapter<T> {
   ): LookupNodeInfo<T>|undefined {
     const index = this.binarySearch(node.items, value);
 
-    // TODO: index is one greater than the item if the item is found
     const currNode = node.items[index];
     if (currNode && currNode.value === value) {
       return { valueNode: currNode, parentPath: parentPath.concat({ node, index }) };
