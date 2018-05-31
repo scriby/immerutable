@@ -31,7 +31,7 @@ const MAX_ITEMS_PER_LEVEL = 64; // Must be even for this implementation
 // Root starts as a value node and then looks like an internal node once it gets too large and splits
 
 export class SortedCollectionAdapter<T> {
-  private comparer: Comparer<T>;
+  comparer: Comparer<T>;
   private maxItemsPerLevel: number;
   private minItemsPerLevel: number;
 
@@ -493,9 +493,9 @@ export class SortedCollectionAdapter<T> {
     }
 
     return {
-      [Symbol.iterator]() {
+      [Symbol.iterator]: () => {
         return {
-          next() {
+          next: () => {
             const value = traverseToFurthestLeft(stack[stack.length - 1]);
 
             if (value !== undefined) {

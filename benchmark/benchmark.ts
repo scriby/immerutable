@@ -3,6 +3,7 @@ import {SortedCollectionAdapter} from '../src/sortedcollection';
 require('source-map-support').install();
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
 import {MapAdapter} from '../src/map';
+import {SortedSetAdapter} from '../src/sortedset';
 
 setUseProxies(true);
 setAutoFreeze(false);
@@ -23,7 +24,7 @@ function benchmark(label: string, cb: (iterations: number) => void) {
 
 function immerutableMap() {
   benchmark('immerutable map: setInMap', (iterations) => {
-    const adapter = new MapAdapter();
+    const adapter = new MapAdapter<string, Obj>();
     let state = { map: adapter.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -39,7 +40,7 @@ function immerutableBtree() {
     comparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
-  benchmark('immerutable btree: insert in increasing order', (iterations) => {
+  benchmark('immerutable sorted collection: insert in increasing order', (iterations) => {
     let state = { btree: sortedCollection.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -49,7 +50,7 @@ function immerutableBtree() {
     }
   });
 
-  benchmark('immerutable btree: insert in random order', (iterations) => {
+  benchmark('immerutable sorted collection: insert in random order', (iterations) => {
     let state = { btree: sortedCollection.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -59,12 +60,48 @@ function immerutableBtree() {
     }
   });
 
-  benchmark('immerutable btree: insert in decreasing order', (iterations) => {
+  benchmark('immerutable sorted collection: insert in decreasing order', (iterations) => {
     let state = { btree: sortedCollection.create() };
 
     for (let i = iterations - 1; i >= 0; i--) {
       state = produce(state, (draft: typeof state) => {
         sortedCollection.insert(draft.btree, { data: i.toString(), order: i });
+      });
+    }
+  });
+}
+
+function immerutableSortedSet() {
+  const sortedSet = new SortedSetAdapter<string, Obj>({
+    comparer: (a: Obj, b: Obj) => a.order! - b.order!,
+  });
+
+  benchmark('immerutable sorted set: insert in increasing order', (iterations) => {
+    let state = { sortedSet: sortedSet.create() };
+
+    for (let i = 0; i < iterations; i++) {
+      state = produce(state, (draft: typeof state) => {
+        sortedSet.set(draft.sortedSet, i.toString(), { data: i.toString(), order: i });
+      });
+    }
+  });
+
+  benchmark('immerutable sorted set: insert in random order', (iterations) => {
+    let state = { sortedSet: sortedSet.create() };
+
+    for (let i = 0; i < iterations; i++) {
+      state = produce(state, (draft: typeof state) => {
+        sortedSet.set(draft.sortedSet, i.toString(), { data: i.toString(), order: Math.random() });
+      });
+    }
+  });
+
+  benchmark('immerutable sorted set: insert in decreasing order', (iterations) => {
+    let state = { sortedSet: sortedSet.create() };
+
+    for (let i = iterations - 1; i >= 0; i--) {
+      state = produce(state, (draft: typeof state) => {
+        sortedSet.set(draft.sortedSet, i.toString(), { data: i.toString(), order: i });
       });
     }
   });
@@ -125,3 +162,7 @@ divider();
 
 immerArray();
 immerutableBtree();
+
+divider();
+
+immerutableSortedSet();
