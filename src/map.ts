@@ -60,7 +60,7 @@ export class MapAdapter<K, V> {
     if (valueNode === undefined) return;
 
     if (depth < MAX_DEPTH) {
-      return (valueNode as ISingleValueNode<V>).value;
+      return (valueNode as ISingleValueNode<V>).key === key ? (valueNode as ISingleValueNode<V>).value : undefined;
     } else {
       return (valueNode as IMultiValueNode<V>).map[key as any];
     }

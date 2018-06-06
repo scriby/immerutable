@@ -33,6 +33,30 @@ describe('Sorted set', () => {
     expect(Array.from(adapter.getIterable(sortedSet))).toEqual(range(1, 20).map(i => ({ data: i.toString(), order: i })));
   });
 
+  it('gets items', () => {
+    const adapter = new SortedSetAdapter<string, TestObject, number>({ getOrderingKey });
+    const sortedSet = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    for (let i = 1; i <= 20; i++) {
+      expect(adapter.get(sortedSet, `data ${i}`)).toEqual({ data: i.toString(), order: i });
+    }
+  });
+
+  it('returns undefined when getting a non-existent item', () => {
+    const adapter = new SortedSetAdapter<string, TestObject, number>({ getOrderingKey });
+    const sortedSet = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    expect(adapter.get(sortedSet, 'does not exist')).toBeUndefined();
+  });
+
   it('reorders when updating item 10 to the end', () => {
     const adapter = new SortedSetAdapter<string, TestObject, number>({ getOrderingKey });
     const sortedSet = adapter.create();
@@ -41,7 +65,7 @@ describe('Sorted set', () => {
       adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
     }
 
-    adapter.update(sortedSet, 'data 10', (item) => { item.order = 25; });
+    adapter.update(sortedSet, 'data 10', item => { item.order = 25; });
 
     expect(adapter.getSize(sortedSet)).toEqual(20);
     expect(Array.from(adapter.getIterable(sortedSet))).toEqual(
@@ -80,5 +104,17 @@ describe('Sorted set', () => {
       range(2, 10).map(i => ({ data: i.toString(), order: i }))
         .concat({ data: '1', order: 10.5 }, range(11, 20).map(i => ({ data: i.toString(), order: i })))
     );
+  });
+
+  it('does nothing when updating a non-existent item', () => {
+    const adapter = new SortedSetAdapter<string, TestObject, number>({ getOrderingKey });
+    const sortedSet = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    adapter.update(sortedSet, 'does not exist', item => { item.data = 'test'; });
+    expect(Array.from(adapter.getIterable(sortedSet))).toEqual(range(1, 20).map(i => ({ data: i.toString(), order: i })));
   });
 });
