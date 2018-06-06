@@ -6,6 +6,7 @@
     "@types/node": "8.10.14",
     "immer": "1.2.1",
     "jest": "22.4.3",
+    "number-generator": "2.1.5",
     "source-map-support": "0.5.5",
     "ts-jest": "22.4.4",
     "typescript": "2.8.3"
@@ -13,7 +14,9 @@
   "scripts": {
     "benchmark": "tsc && node --expose-gc dist/benchmark/benchmark.js",
     "benchmark-debug": "tsc && node --inspect-brk --expose-gc dist/benchmark/benchmark.js",
-    "build": "tsc",
+    "build": "rm dist/* && tsc",
+    "fuzz": "jest fuzz",
+    "fuzz-debug": "node --inspect-brk ./node_modules/.bin/jest fuzz",
     "test": "jest src --watch",
     "test-debug": "node --inspect-brk ./node_modules/.bin/jest src --watch"
   },

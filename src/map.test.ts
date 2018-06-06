@@ -1,6 +1,8 @@
 import * as hash from './hash';
 import {MapAdapter} from './map';
 
+//TODO: size doesn't decrease when removing non-existent item
+
 describe('map', () => {
   beforeEach(() => {
     jest.restoreAllMocks();

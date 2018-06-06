@@ -24,7 +24,7 @@ function benchmark(label: string, cb: (iterations: number) => void) {
 
 function immerutableMap() {
   benchmark('immerutable map: setInMap', (iterations) => {
-    const adapter = new MapAdapter<string, Obj>();
+    const adapter = new MapAdapter<number, Obj>();
     let state = { map: adapter.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -160,7 +160,7 @@ immerutableMap();
 
 divider();
 
-//immerArray();
+immerArray();
 immerutableBtree();
 
 divider();

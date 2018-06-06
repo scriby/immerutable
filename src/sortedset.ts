@@ -69,7 +69,7 @@ export class SortedSetAdapter<K extends Key, V, O> {
   }
 
   update(sortedSet: ISortedSet<K, V, O>, key: K, updater: (item: V) => V|void): void {
-    const existing = this.mapAdapter.get(sortedSet.map, key);console.log(existing)
+    const existing = this.mapAdapter.get(sortedSet.map, key);
     if (!existing) return;
 
     const existingSorted = this.sortedCollectionAdapter.lookupValuePath(

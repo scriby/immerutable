@@ -1,7 +1,7 @@
 import {hash} from './hash';
 
 export interface IMap<K, V> {
-  root: ITrieNode<V>,
+  root: ITrieNode<K, V>,
   size: number;
 }
 
@@ -15,8 +15,8 @@ export interface IStringIndexable<V> {
   [key: string]: V;
 }
 
-export interface ITrieNode<V> {
-  [index: number]: ITrieNode<V> | IMultiValueNode<V> | ISingleValueNode<V>;
+export interface ITrieNode<K, V> {
+  [index: number]: ITrieNode<K, V> | IMultiValueNode<V> | ISingleValueNode<K, V>;
   length: number;
 }
 
@@ -24,8 +24,8 @@ export interface IMultiValueNode<V> {
   map: INumberIndexable<V> & IStringIndexable<V>;
 }
 
-export interface ISingleValueNode<V> {
-  key: Key;
+export interface ISingleValueNode<K, V> {
+  key: K;
   value: V;
 }
 
@@ -34,7 +34,7 @@ const TRIE_NODE_SIZE = 1 << SHIFT;
 const MASK = TRIE_NODE_SIZE - 1;
 const MAX_DEPTH = Math.ceil(32 / SHIFT);
 
-export class MapAdapter<K, V> {
+export class MapAdapter<K extends Key, V> {
   create(): IMap<K, V> {
     return {
       root: this.createTrieNode(),
@@ -42,31 +42,31 @@ export class MapAdapter<K, V> {
     };
   }
 
-  has(map: IMap<K, V>, key: Key): boolean {
+  has(map: IMap<K, V>, key: K): boolean {
     const {valueNode, depth} = this.lookupValueNode(map, key);
 
     if (valueNode === undefined) return false;
 
     if (depth < MAX_DEPTH) {
-      return (valueNode as ISingleValueNode<V>).key === key;
+      return (valueNode as ISingleValueNode<K, V>).key === key;
     } else {
-      return key in valueNode;
+      return key in (valueNode as IMultiValueNode<V>).map;
     }
   }
 
-  get(map: IMap<K, V>, key: Key): V|undefined {
+  get(map: IMap<K, V>, key: K): V|undefined {
     const {valueNode, depth} = this.lookupValueNode(map, key);
 
     if (valueNode === undefined) return;
 
     if (depth < MAX_DEPTH) {
-      return (valueNode as ISingleValueNode<V>).key === key ? (valueNode as ISingleValueNode<V>).value : undefined;
+      return (valueNode as ISingleValueNode<K, V>).key === key ? (valueNode as ISingleValueNode<K, V>).value : undefined;
     } else {
       return (valueNode as IMultiValueNode<V>).map[key as any];
     }
   }
 
-  set(map: IMap<K, V>, key: Key, value: V): void {
+  set(map: IMap<K, V>, key: K, value: V): void {
     const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
 
     if (valueNode === undefined) {
@@ -76,56 +76,59 @@ export class MapAdapter<K, V> {
         containingTrieNode[index] = this.createSingleValueNode(key, value);
       } else if (depth === MAX_DEPTH) {
         const newValueNode = containingTrieNode[index] = this.createValueNode();
-        newValueNode.map[key] = value;
+        newValueNode.map[key as Key] = value;
       }
 
       return;
     }
 
     if (depth < MAX_DEPTH) {
+      if ((valueNode as ISingleValueNode<K, V>).key === key) {
+        return; // Item already exists in single value node.
+      }
+
       this.pushSingleValueNodeDown(containingTrieNode, index, depth);
       return this.set(map, key, value);
     } else {
-      if (!(key in valueNode)) {
+      if (!(key in (valueNode as IMultiValueNode<V>).map)) {
         map.size++;
+        (valueNode as IMultiValueNode<V>).map[key as Key] = value;
       }
-
-      (valueNode as IMultiValueNode<V>).map[key] = value;
     }
   }
 
-  remove(map: IMap<K, V>, key: Key): void {
+  remove(map: IMap<K, V>, key: K): void {
     const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
 
     if (valueNode) {
       if (depth < MAX_DEPTH) {
         delete containingTrieNode[index];
-      } else {
-        delete ((valueNode as IMultiValueNode<V>).map)[key];
+        map.size--;
+      } else if (key in (valueNode as IMultiValueNode<V>).map) {
+        delete (valueNode as IMultiValueNode<V>).map[key as Key];
+        map.size--;
       }
-
-      map.size--;
     }
   }
 
-  update(map: IMap<K, V>, key: Key, updater: (item: V) => V|void|undefined): V|undefined {
+  update(map: IMap<K, V>, key: K, updater: (item: V) => V|void|undefined): V|undefined {
     const {depth, valueNode} = this.lookupValueNode(map, key);
     if (valueNode === undefined) return;
 
     if (depth < MAX_DEPTH) {
-      const value = (valueNode as ISingleValueNode<V>).value;
+      const value = (valueNode as ISingleValueNode<K, V>).value;
       const retVal = updater(value);
       if (retVal !== undefined) {
-        (valueNode as ISingleValueNode<V>).value = retVal;
+        (valueNode as ISingleValueNode<K, V>).value = retVal;
         return retVal;
       } else {
         return value;
       }
     } else {
-      const value = (valueNode as IMultiValueNode<V>).map[key];
+      const value = (valueNode as IMultiValueNode<V>).map[key as Key];
       const retVal = updater(value);
       if (retVal !== undefined) {
-        (valueNode as IMultiValueNode<V>).map[key] = retVal;
+        (valueNode as IMultiValueNode<V>).map[key as Key] = retVal;
         return retVal;
       } else {
         return value;
@@ -137,12 +140,12 @@ export class MapAdapter<K, V> {
     return map.size;
   }
 
-  private createTrieNode(): ITrieNode<V> {
+  private createTrieNode(): ITrieNode<K, V> {
     return [];
   }
 
-  private createSingleValueNode(key: Key, value: V) {
-    return { 'key': key, 'value': value };
+  private createSingleValueNode(key: K, value: V) {
+    return { key: key, value: value };
   }
 
   private createValueNode(): IMultiValueNode<V> {
@@ -151,25 +154,25 @@ export class MapAdapter<K, V> {
     };
   }
 
-  private lookupValueNode(map: IMap<K, V>, key: Key) {
+  private lookupValueNode(map: IMap<K, V>, key: K) {
     let hashCode = hash(key.toString());
-    let node: ITrieNode<V> = map.root;
+    let node: ITrieNode<K, V> = map.root;
     let index = 0;
     let depth = 1;
-    let valueNode: IMultiValueNode<V> | ISingleValueNode<V> | undefined;
+    let valueNode: IMultiValueNode<V> | ISingleValueNode<K, V> | undefined;
 
     while (depth <= MAX_DEPTH) {
       index = this.computePartialHashCode(hashCode, depth);
       depth++;
 
-      let nextNode: ITrieNode<V> | IMultiValueNode<V> | ISingleValueNode<V> = node[index];
+      let nextNode: ITrieNode<K, V> | IMultiValueNode<V> | ISingleValueNode<K, V> = node[index];
       if (nextNode === undefined) {
         valueNode = undefined;
         break;
       } else if (Array.isArray(nextNode)) {
         node = nextNode;
       } else {
-        valueNode = nextNode as IMultiValueNode<V> | ISingleValueNode<V>;
+        valueNode = nextNode as IMultiValueNode<V> | ISingleValueNode<K, V>;
         break;
       }
     }
@@ -177,14 +180,14 @@ export class MapAdapter<K, V> {
     return { containingTrieNode: node, depth, index, valueNode };
   }
 
-  private pushSingleValueNodeDown(trieNode: ITrieNode<V>, index: number, depth: number) {
-    const singleValueNode = trieNode[index] as ISingleValueNode<V>;
+  private pushSingleValueNodeDown(trieNode: ITrieNode<K, V>, index: number, depth: number) {
+    const singleValueNode = trieNode[index] as ISingleValueNode<K, V>;
     const newTrieNode = trieNode[index] = this.createTrieNode();
     const partialHash = this.computePartialHashCode(hash(singleValueNode.key.toString()), depth);
 
     if (depth === MAX_DEPTH - 1) {
       const newValueNode = newTrieNode[partialHash] = this.createValueNode();
-      newValueNode.map[singleValueNode.key] = singleValueNode.value;
+      newValueNode.map[singleValueNode.key as Key] = singleValueNode.value;
     } else {
       newTrieNode[partialHash] = singleValueNode;
     }
