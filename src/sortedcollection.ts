@@ -24,6 +24,8 @@ export interface LookupNodeInfo<T> {
 
 export type Comparer<T> = (a: T, b: T) => number;
 
+export type EqualityComparer<T> = (a: T, b: T) => boolean;
+
 const MAX_ITEMS_PER_LEVEL = 64; // Must be even for this implementation
 
 // Internal node layout: [ Child, Value, Child, Value, Child, ... ]
@@ -31,15 +33,18 @@ const MAX_ITEMS_PER_LEVEL = 64; // Must be even for this implementation
 // Root starts as a value node and then looks like an internal node once it gets too large and splits
 
 export class SortedCollectionAdapter<T> {
-  comparer: Comparer<T>;
+  orderComparer: Comparer<T>;
+  equalityComparer: EqualityComparer<T>;
   private maxItemsPerLevel: number;
   private minItemsPerLevel: number;
 
   constructor(args: {
-    comparer: Comparer<T>,
+    orderComparer: Comparer<T>,
+    equalityComparer?: EqualityComparer<T>,
     maxItemsPerLevel?: number,
   }) {
-    this.comparer = args.comparer;
+    this.orderComparer = args.orderComparer;
+    this.equalityComparer = args.equalityComparer || ((a, b) => a === b);
     this.maxItemsPerLevel = args.maxItemsPerLevel || MAX_ITEMS_PER_LEVEL;
 
     if (this.maxItemsPerLevel % 2 === 1) throw new Error('maxItemsPerLevel must be even');
@@ -62,8 +67,8 @@ export class SortedCollectionAdapter<T> {
     const value = nodeInfo.valueNode.value;
 
     if (
-      (proceedingItem && this.comparer(value, proceedingItem) < 0) ||
-      (nextItem && this.comparer(value, nextItem) > 0)
+      (proceedingItem && this.orderComparer(value, proceedingItem) < 0) ||
+      (nextItem && this.orderComparer(value, nextItem) > 0)
     ) {
       // Item is out of order, remove and re-insert it to fix up the order.
       this.removeByPath(nodeInfo);
@@ -354,7 +359,7 @@ export class SortedCollectionAdapter<T> {
     const index = this.binarySearch(node.items, value);
 
     const currNode = node.items[index];
-    if (currNode && currNode.value === value) {
+    if (currNode && this.equalityComparer(currNode.value, value)) {
       return { valueNode: currNode, parentPath: parentPath.concat({ node, index }) };
     }
 
@@ -367,17 +372,17 @@ export class SortedCollectionAdapter<T> {
       }
 
       const prevNode = node.items[prev];
-      if (prevNode &&  prevNode.value === value) {
+      if (prevNode && this.equalityComparer(prevNode.value, value)) {
         return { valueNode: node.items[prev], parentPath: parentPath.concat({ node, index: prev }) };
       }
 
-      if (!prevNode || this.comparer(value, prevNode.value) !== 0) {
+      if (!prevNode || this.orderComparer(value, prevNode.value) !== 0) {
         break;
       }
     }
 
     if (!currNode) return;
-    if (this.comparer(value, currNode.value) !== 0) return;
+    if (this.orderComparer(value, currNode.value) !== 0) return;
 
     for (let next = index + 1; ; next++) {
       if (node.children !== undefined) {
@@ -388,11 +393,11 @@ export class SortedCollectionAdapter<T> {
       }
 
       const nextNode = node.items[next];
-      if (nextNode && nextNode.value === value) {
+      if (nextNode && this.equalityComparer(nextNode.value, value)) {
         return { valueNode: node.items[next], parentPath: parentPath.concat({ node, index: next }) };
       }
 
-      if (!nextNode || this.comparer(value, nextNode.value) !== 0) {
+      if (!nextNode || this.orderComparer(value, nextNode.value) !== 0) {
         break;
       }
     }
@@ -403,13 +408,13 @@ export class SortedCollectionAdapter<T> {
 
     // Optimize increasing order insertions.
     const lastItemValue = (items[items.length - 1]).value;
-    if (this.comparer(value, lastItemValue) >= 0) {
+    if (this.orderComparer(value, lastItemValue) >= 0) {
       return items.length;
     }
 
     // Optimize decreasing order insertions.
     const firstItemValue = items[0].value;
-    if (this.comparer(value, firstItemValue) <= 0) {
+    if (this.orderComparer(value, firstItemValue) <= 0) {
       return 0;
     }
 
@@ -424,7 +429,7 @@ export class SortedCollectionAdapter<T> {
 
     const mid = Math.floor(low + (high - low) / 2);
     const currValue = items[mid].value;
-    const comparison = this.comparer(value, currValue);
+    const comparison = this.orderComparer(value, currValue);
 
     if (comparison < 0) {
       return this._binarySearch(items, value, low, mid - 1);

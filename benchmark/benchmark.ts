@@ -37,7 +37,7 @@ function immerutableMap() {
 
 function immerutableBtree() {
   const sortedCollection = new SortedCollectionAdapter<Obj>({
-    comparer: (a: Obj, b: Obj) => a.order! - b.order!,
+    orderComparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
   benchmark('immerutable sorted collection: insert in increasing order', (iterations) => {
@@ -72,8 +72,8 @@ function immerutableBtree() {
 }
 
 function immerutableSortedSet() {
-  const sortedSet = new SortedSetAdapter<string, Obj>({
-    comparer: (a: Obj, b: Obj) => a.order! - b.order!,
+  const sortedSet = new SortedSetAdapter<string, Obj, number>({
+    getOrderingKey: (obj: Obj) => obj.order!,
   });
 
   benchmark('immerutable sorted set: insert in increasing order', (iterations) => {
@@ -160,7 +160,7 @@ immerutableMap();
 
 divider();
 
-immerArray();
+//immerArray();
 immerutableBtree();
 
 divider();
