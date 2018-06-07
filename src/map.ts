@@ -196,4 +196,68 @@ export class MapAdapter<K extends Key, V> {
   private computePartialHashCode(hashCode: number, depth: number) {
     return (hashCode >> ((depth - 1) * SHIFT)) & MASK;
   }
+
+  getIterable(map: IMap<K, V>): Iterable<ISingleValueNode<K, V>> {
+    type Frame = {
+      index: number,
+      content: ITrieNode<K, V> | ISingleValueNode<K, V> | IMultiValueNode<V>,
+    };
+    const stack: Frame[] = [{ index: 0, content: map.root }];
+
+    const traverseToFurthestLeft = (frame: Frame): ISingleValueNode<K, V>|undefined => {
+      if (frame === undefined) return undefined;
+
+      if (Array.isArray(frame.content)) {
+        if (frame.index < frame.content.length) {
+          const child = frame.content[frame.index++];
+          if (child === undefined) {
+            return traverseToFurthestLeft(frame);
+          }
+
+          const nextFrame = { content: child, index: 0 };
+          stack.push(nextFrame);
+          return traverseToFurthestLeft(nextFrame);
+        } else {
+          stack.pop();
+
+          return traverseToFurthestLeft(stack[stack.length - 1]);
+        }
+      } else if ('value' in frame.content) {
+        stack.pop();
+
+        return frame.content as ISingleValueNode<K, V>;
+      } else {
+        stack.pop();
+        const multiValueNode = frame.content as IMultiValueNode<V>;
+        //TODO: Do something about this converting keys to string.
+        const nextContent = Object.keys(multiValueNode.map).map(key => this.createSingleValueNode(key as any, multiValueNode.map[key]));
+        const nextFrame = { content: nextContent, index: 0 };
+        stack.push(nextFrame);
+
+        return traverseToFurthestLeft(nextFrame);
+      }
+    };
+
+    return {
+      [Symbol.iterator]: () => {
+        return {
+          next: () => {
+            const value = traverseToFurthestLeft(stack[stack.length - 1]);
+
+            if (value !== undefined) {
+              return {
+                value: value as ISingleValueNode<K, V>,
+                done: false,
+              };
+            } else {
+              return {
+                value: undefined as any as ISingleValueNode<K, V>,
+                done: true,
+              };
+            }
+          }
+        };
+      }
+    };
+  }
 }

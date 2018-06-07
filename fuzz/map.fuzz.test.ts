@@ -24,6 +24,10 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
       expect(adapter.get(map, Number(key))).toEqual(expected[key]);
     }
 
+    for (const {key, value} of adapter.getIterable(map)) {
+      expect(value).toEqual(expected[key]);
+    }
+
     //TODO: Check other direction as well once map has an iterator.
   });
 
@@ -58,6 +62,8 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
       expect(adapter.get(map, Number(key))).toEqual(expected[key]);
     }
 
-    //TODO: Check other direction as well once map has an iterator.
+    for (const {key, value} of adapter.getIterable(map)) {
+      expect(value).toEqual(expected[key]);
+    }
   });
 });

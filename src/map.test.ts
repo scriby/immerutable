@@ -4,6 +4,8 @@ import {MapAdapter} from './map';
 //TODO: size doesn't decrease when removing non-existent item
 
 describe('map', () => {
+  const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
+
   beforeEach(() => {
     jest.restoreAllMocks();
   });
@@ -133,7 +135,7 @@ describe('map', () => {
     expect(adapter.get(map, 1)).toEqual({ testKey: 'test value 2 b' });
   });
 
-  test('Updates an item by returning a different value', () => {
+  test('updates an item by returning a different value', () => {
     const adapter = new MapAdapter<number, typeof testValue>();
     const map = adapter.create();
     const testValue = { testKey: 'test value' };
@@ -142,5 +144,17 @@ describe('map', () => {
     adapter.update(map, 1, () => ({ testKey: 'asdf' }));
 
     expect(adapter.get(map, 1)).toEqual({ testKey: 'asdf' });
+  });
+
+  test('iterates through map entries', () => {
+    const adapter = new MapAdapter<number, typeof testValue>();
+    const map = adapter.create();
+    const testValue = { x: 0, value: 'test value' };
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(map, i, { ...testValue, x: i });
+    }
+
+    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(1, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
   });
 });
