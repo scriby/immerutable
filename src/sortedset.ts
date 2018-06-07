@@ -20,11 +20,19 @@ export class SortedSetAdapter<K extends Key, V, O> {
   private mapAdapter = new MapAdapter<K, V>();
   private sortedCollectionAdapter: SortedCollectionAdapter<IKeyWithOrder<K, O>>;
 
-  constructor(args: { getOrderingKey: GetOrderingKey<V, O> }) {
+  constructor(args: {
+    getOrderingKey: GetOrderingKey<V, O>,
+    orderComparer?: Comparer<O>,
+  }) {
     this.getOrderingKey = args.getOrderingKey;
+
+    const orderComparer: Comparer<IKeyWithOrder<K, O>> = args.orderComparer ?
+      (a, b) => args.orderComparer!(a.order, b.order) :
+      (a, b) => a.order < b.order ? -1 : a.order > b.order ? 1 : 0;
+
     this.sortedCollectionAdapter = new SortedCollectionAdapter({
       equalityComparer: (a, b) => a.key === b.key,
-      orderComparer: (a, b) => a.order < b.order ? -1 : a.order > b.order ? 1 : 0,
+      orderComparer,
     });
   }
 

@@ -117,4 +117,18 @@ describe('Sorted set', () => {
     adapter.update(sortedSet, 'does not exist', item => { item.data = 'test'; });
     expect(Array.from(adapter.getIterable(sortedSet))).toEqual(range(1, 20).map(i => ({ data: i.toString(), order: i })));
   });
+
+  it('uses a custom ordering function', () => {
+    const adapter = new SortedSetAdapter<string, TestObject, number>({
+      getOrderingKey,
+      orderComparer: (a, b) => b - a,
+    });
+    const sortedSet = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    expect(Array.from(adapter.getIterable(sortedSet))).toEqual(range(1, 20).reverse().map(i => ({ data: i.toString(), order: i })));
+  });
 });
