@@ -58,7 +58,7 @@ export class SortedCollectionAdapter<T> {
   }
 
   insert(tree: IBTree<T>, value: T): void {
-    this.insertInBTreeNode(tree.root, tree.root, null, value);
+    this.insertInBTreeNode(tree.root, tree.root, undefined, value);
   }
 
   ensureSortedOrderOfNode(tree: IBTree<T>, nodeInfo: LookupNodeInfo<T>): void {
@@ -76,16 +76,16 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|null, parentIndex: number|null, value: T): void {
+  private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|undefined, parentIndex: number|undefined, value: T): void {
     const isLeafNode = this.isLeafNode(node);
-    if (parent !== null && ((isLeafNode && node.items.length >= this.maxItemsPerLevel) || (!isLeafNode && node.children!.length >= this.maxItemsPerLevel))) {
+    if (parent !== undefined && ((isLeafNode && node.items.length >= this.maxItemsPerLevel) || (!isLeafNode && node.children!.length >= this.maxItemsPerLevel))) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
-      const isRightMostLeaf = isLeafNode && parentIndex !== null && parentIndex === parent.children!.length - 1;
+      const isRightMostLeaf = isLeafNode && parentIndex !== undefined && parentIndex === parent.children!.length - 1;
       const isLeftMostLeaf = isLeafNode && parentIndex === 0;
       const {left, mid, right} = isRightMostLeaf ? this.splitLeafNodeLeftHeavy(node) : isLeftMostLeaf ? this.splitLeafNodeRightHeavy(node) : this.splitNode(node);
 
-      if (parentIndex === null) {
+      if (parentIndex === undefined) {
         // This is the root of the tree. Create a new root.
         parent.items = [mid];
         parent.children = [left, right];
@@ -96,7 +96,7 @@ export class SortedCollectionAdapter<T> {
         parent.items.splice(parentIndex, 0, mid);
       }
 
-      return this.insertInBTreeNode(parent, null, null, value);
+      return this.insertInBTreeNode(parent, undefined, undefined, value);
     }
 
     if (isLeafNode) {
