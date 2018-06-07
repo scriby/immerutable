@@ -1,9 +1,12 @@
 import * as rng from 'number-generator';
 import {MapAdapter} from '../src/map';
+import {getSeed} from './util';
 
-describe('Map (fuzz)', () => {
+const seed = getSeed();
+
+describe(`Map (fuzz) (Seed: ${seed})`, () => {
   it('Retains consistency over many sets', () => {
-    const random = rng.aleaRNGFactory(9843271489);
+    const random = rng.aleaRNGFactory(seed);
     const adapter = new MapAdapter<number, { data: number}>();
     const map = adapter.create();
     const expected = Object.create(null);
@@ -25,7 +28,7 @@ describe('Map (fuzz)', () => {
   });
 
   it('Retains consistency over many sets and removals', () => {
-    const random = rng.aleaRNGFactory(58329192);
+    const random = rng.aleaRNGFactory(seed);
     const adapter = new MapAdapter<number, { data: number }>();
     const map = adapter.create();
     const expected = Object.create(null);
