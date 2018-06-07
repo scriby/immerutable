@@ -27,25 +27,30 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
     //TODO: Check other direction as well once map has an iterator.
   });
 
-  it('Retains consistency over many sets and removals', () => {
+  it('Adds and removes randomly', () => {
     const random = rng.aleaRNGFactory(seed);
-    const adapter = new MapAdapter<number, { data: number }>();
+    const adapter = new MapAdapter<number, { data: number}>();
     const map = adapter.create();
     const expected = Object.create(null);
+    const keys = [];
 
-    for (let i = 0; i < 300000; i++) {
-      const value = random.uInt32();
-      const data = { data: value };
-      adapter.set(map, value, data);
-      expected[value] = data;
+    for (let i = 0; i < 500000; i++) {
+      // 2/3 of the time, add a random value
+      if (random.uFloat32() < .67) {
+        const value = random.uInt32();
+        const data = { data: value };
+        adapter.set(map, value, data);
+        expected[value] = data;
+        keys.push(value);
+      } else {
+        // 1/3 of the time, remove a value
+        if (keys.length === 0) continue;
+
+        const lastKey = keys.pop()!;
+        adapter.remove(map, Number(lastKey));
+        delete expected[lastKey];
+      }
     }
-
-    expect(adapter.getSize(map)).toEqual(Object.keys(expected).length);
-
-    Object.keys(expected).slice(200000).forEach((key) => {
-      adapter.remove(map, Number(key));
-      delete expected[key];
-    });
 
     expect(adapter.getSize(map)).toEqual(Object.keys(expected).length);
 
