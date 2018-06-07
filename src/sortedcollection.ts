@@ -81,6 +81,8 @@ export class SortedCollectionAdapter<T> {
     if (parent !== undefined && ((isLeafNode && node.items.length >= this.maxItemsPerLevel) || (!isLeafNode && node.children!.length >= this.maxItemsPerLevel))) {
       // Instead of splitting the rightmost leaf in half, split it such that all (but one) of the items are in the left
       // subtree, leaving the right subtree empty. This optimizes for increasing in-order insertions.
+      // Note that this doesn't detect if it's actually the furthest right node in the tree; it just checks for the
+      // current parent. Trying to make it more accurate is slow enough that it negates the perf benefit.
       const isRightMostLeaf = isLeafNode && parentIndex !== undefined && parentIndex === parent.children!.length - 1;
       const isLeftMostLeaf = isLeafNode && parentIndex === 0;
       const {left, mid, right} = isRightMostLeaf ? this.splitLeafNodeLeftHeavy(node) : isLeftMostLeaf ? this.splitLeafNodeRightHeavy(node) : this.splitNode(node);
