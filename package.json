@@ -14,6 +14,7 @@
   "scripts": {
     "benchmark": "tsc && node --expose-gc dist/benchmark/benchmark.js",
     "benchmark-debug": "tsc && node --inspect-brk --expose-gc dist/benchmark/benchmark.js",
+    "coverage": "jest src --coverage",
     "build": "rm -rf dist/* && tsc",
     "fuzz": "jest fuzz",
     "fuzz-debug": "node --inspect-brk ./node_modules/.bin/jest fuzz",

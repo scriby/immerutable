@@ -285,4 +285,26 @@ describe('B-tree', () => {
       [{ key: '20', order: 0 }].concat(range(1, 19).map(i => ({ key: i.toString(), order: i })))
     )
   });
+
+  test('gets the first item', () => {
+    const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 10; i++) {
+      adapter.insert(btree, i);
+    }
+
+    expect(adapter.getFirst(btree)).toEqual(1);
+  });
+
+  test('gets the last item', () => {
+    const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 1; i <= 10; i++) {
+      adapter.insert(btree, i);
+    }
+
+    expect(adapter.getLast(btree)).toEqual(10);
+  });
 });

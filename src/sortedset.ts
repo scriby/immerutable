@@ -103,4 +103,18 @@ export class SortedSetAdapter<K extends Key, V, O> {
   getSize(sortedSet: ISortedSet<K, V, O>): number {
     return this.mapAdapter.getSize(sortedSet.map);
   }
+
+  getFirst(sortedSet: ISortedSet<K, V, O>): V|undefined {
+    const firstKeyWithOrder = this.sortedCollectionAdapter.getFirst(sortedSet.sortedCollection);
+    if (firstKeyWithOrder === undefined) return;
+
+    return this.mapAdapter.get(sortedSet.map, firstKeyWithOrder.key);
+  }
+
+  getLast(sortedSet: ISortedSet<K, V, O>): V|undefined {
+    const lastKeyWithOrder = this.sortedCollectionAdapter.getLast(sortedSet.sortedCollection);
+    if (lastKeyWithOrder === undefined) return;
+
+    return this.mapAdapter.get(sortedSet.map, lastKeyWithOrder.key);
+  }
 }

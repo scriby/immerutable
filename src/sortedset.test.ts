@@ -131,4 +131,26 @@ describe('Sorted set', () => {
 
     expect(Array.from(adapter.getIterable(sortedSet))).toEqual(range(1, 20).reverse().map(i => ({ data: i.toString(), order: i })));
   });
+
+  it('gets the first item', () => {
+    const adapter = new SortedSetAdapter<string, TestObject, number>({ getOrderingKey });
+    const sortedSet = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    expect(adapter.getFirst(sortedSet)).toEqual({ data: '1', order: 1 });
+  });
+
+  it('gets the last item', () => {
+    const adapter = new SortedSetAdapter<string, TestObject, number>({ getOrderingKey });
+    const sortedSet = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedSet, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    expect(adapter.getLast(sortedSet)).toEqual({ data: '20', order: 20 });
+  });
 });

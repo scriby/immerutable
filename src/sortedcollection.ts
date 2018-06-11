@@ -76,6 +76,18 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
+  getFirst(tree: IBTree<T>): T|undefined {
+    if (tree.root.items.length === 0) return;
+
+    return this.getFurthestLeftValue(tree.root);
+  }
+
+  getLast(tree: IBTree<T>): T|undefined {
+    if (tree.root.items.length === 0) return;
+
+    return this.getFurthestRightValue(tree.root);
+  }
+
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|undefined, parentIndex: number|undefined, value: T): void {
     const isLeafNode = this.isLeafNode(node);
     if (parent !== undefined && ((isLeafNode && node.items.length >= this.maxItemsPerLevel) || (!isLeafNode && node.children!.length >= this.maxItemsPerLevel))) {
@@ -259,12 +271,12 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  isNodeDeficient(node: IBTreeNode<T>, isLeafNode: boolean) {
+  private isNodeDeficient(node: IBTreeNode<T>, isLeafNode: boolean) {
     return (isLeafNode && node.items.length < this.minItemsPerLevel) ||
       (!isLeafNode && node.children!.length < this.minItemsPerLevel);
   }
 
-  canNodeLoseItem(node: IBTreeNode<T>, isLeafNode: boolean) {
+  private canNodeLoseItem(node: IBTreeNode<T>, isLeafNode: boolean) {
     return (isLeafNode && node.items.length > this.minItemsPerLevel) ||
       (!isLeafNode && node.children!.length > this.minItemsPerLevel);
   }
