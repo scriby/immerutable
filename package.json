@@ -17,6 +17,7 @@
     "coverage": "jest src --coverage",
     "build": "rm -rf dist/* && tsc",
     "fuzz": "jest fuzz",
+    "fuzz-coverage": "jest fuzz --coverage",
     "fuzz-debug": "node --inspect-brk ./node_modules/.bin/jest fuzz",
     "test": "jest src --watch",
     "test-debug": "node --inspect-brk ./node_modules/.bin/jest src --watch"

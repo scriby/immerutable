@@ -11,7 +11,7 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
     const map = adapter.create();
     const expected = Object.create(null);
 
-    for (let i = 0; i < 300000; i++) {
+    for (let i = 0; i < 200000; i++) {
       const value = random.uInt32();
       const data = { data: value };
       adapter.set(map, value, data);
@@ -27,8 +27,6 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
     for (const {key, value} of adapter.getIterable(map)) {
       expect(value).toEqual(expected[key]);
     }
-
-    //TODO: Check other direction as well once map has an iterator.
   });
 
   it('Adds and removes randomly', () => {

@@ -1,5 +1,5 @@
 import * as hash from './hash';
-import {MapAdapter} from './map';
+import {Key, MapAdapter} from './map';
 
 //TODO: size doesn't decrease when removing non-existent item
 
@@ -59,6 +59,39 @@ describe('map', () => {
     expect(fromMap2).toBe(testValue2);
 
     expect(map.size).toBe(2);
+  });
+
+  test('sets values at the max depth of the tree', () => {
+    class TestAdapter<K extends Key, V> extends MapAdapter<K, V> {
+      protected maxDepth = 3;
+    }
+
+    const adapter = new TestAdapter<string, number>();
+    const map = adapter.create();
+
+    for (let i = 0; i < 20; i++) {
+      adapter.set(map, i.toString(), i);
+      expect(adapter.get(map, i.toString())).toEqual(i);
+    }
+  });
+
+  test('replaces a value in all node types', () => {
+    class TestAdapter<K extends Key, V> extends MapAdapter<K, V> {
+      protected maxDepth = 3;
+    }
+
+    const adapter = new TestAdapter<string, string>();
+    const map = adapter.create();
+
+    for (let i = 0; i < 20; i++) {
+      adapter.set(map, i.toString(), i.toString());
+      expect(adapter.get(map, i.toString())).toEqual(i.toString());
+    }
+
+    for (let i = 0; i < 20; i++) {
+      adapter.set(map, i.toString(), i + '_updated');
+      expect(adapter.get(map, i.toString())).toEqual(i + '_updated');
+    }
   });
 
   test('removes by key', () => {
@@ -146,6 +179,34 @@ describe('map', () => {
     expect(adapter.get(map, 1)).toEqual({ testKey: 'asdf' });
   });
 
+  test('does not update a non-existent item', () => {
+    const adapter = new MapAdapter<number, typeof testValue>();
+    const map = adapter.create();
+    const testValue = { testKey: 'test value' };
+
+    adapter.update(map, 1, () => ({ testKey: 'asdf' }));
+
+    expect(adapter.get(map, 1)).toBeUndefined();
+  });
+
+  test('updates an item at maxDepth', () => {
+    class TestAdapter<K extends Key, V> extends MapAdapter<K, V> {
+      protected maxDepth = 3;
+    }
+
+    const adapter = new TestAdapter<string, string>();
+    const map = adapter.create();
+
+    for (let i = 0; i < 20; i++) {
+      adapter.set(map, i.toString(), i.toString());
+      expect(adapter.get(map, i.toString())).toEqual(i.toString());
+    }
+
+    adapter.update(map, '0', (item) => item + '_updated');
+
+    expect(adapter.get(map, '0')).toEqual('0_updated');
+  });
+
   test('iterates through map entries', () => {
     const adapter = new MapAdapter<number, typeof testValue>();
     const map = adapter.create();
@@ -156,5 +217,62 @@ describe('map', () => {
     }
 
     expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(1, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
+  });
+
+  test('iterates through maxDepth map entries', () => {
+    class TestAdapter<K extends Key, V> extends MapAdapter<K, V> {
+      protected maxDepth = 3;
+    }
+
+    const adapter = new TestAdapter<number, typeof testValue>();
+    const map = adapter.create();
+    const testValue = { x: 0, value: 'test value' };
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(map, i, { ...testValue, x: i });
+    }
+
+    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(1, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
+  });
+
+  test('determines a key exists using has', () => {
+    const adapter = new MapAdapter<string, number>();
+    const map = adapter.create();
+
+    adapter.set(map, 'test', 10);
+
+    expect(adapter.has(map, 'test')).toBe(true);
+  });
+
+  test('determines a key does not exist using has', () => {
+    const adapter = new MapAdapter<string, number>();
+    const map = adapter.create();
+
+    expect(adapter.has(map, 'test')).toBe(false);
+  });
+
+  test('determines an existing key with hash conflict exists', () => {
+    const adapter = new MapAdapter<string, number>();
+    const map = adapter.create();
+    jest.spyOn(hash, 'hash').mockImplementation(() => {
+      return 987654321;
+    });
+
+    adapter.set(map, 'test', 10);
+    adapter.set(map, 'test1', 11);
+
+    expect(adapter.has(map, 'test')).toBe(true);
+  });
+
+  test('determines a non-existent key with hash conflict does not exist', () => {
+    const adapter = new MapAdapter<string, number>();
+    const map = adapter.create();
+    jest.spyOn(hash, 'hash').mockImplementation(() => {
+      return 987654321;
+    });
+
+    adapter.set(map, 'test', 10);
+
+    expect(adapter.has(map, 'does not exist')).toBe(false);
   });
 });

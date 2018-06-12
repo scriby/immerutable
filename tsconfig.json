@@ -3,6 +3,7 @@
     "alwaysStrict": true,
     "sourceMap": false,
     "declaration": true,
+    "downlevelIteration": true,
     "target": "ES5",
     "lib": ["es2015", "es2015.iterable"],
     "module": "commonjs",

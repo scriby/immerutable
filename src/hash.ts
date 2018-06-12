@@ -22,12 +22,37 @@
   SOFTWARE.
 */
 
-export function hash(key: string) {
+// This code is adapted from Facebook's ImmutableJS.
+
+export function hash(key: number|string): number {
   if (key == null) {
     return 0;
   }
 
-  return hashString(key);
+  if (typeof key === 'number') {
+    return hashNumber(key);
+  } else if (typeof key === 'string') {
+    return hashString(key);
+  } else {
+    throw new Error('Can only get hash code of numbers or strings');
+  }
+}
+
+function hashNumber(num: number): number {
+  if (num !== num || num === Infinity) {
+    return 0;
+  }
+
+  let h = num | 0;
+  if (h !== num) {
+    h ^= num * 0xffffffff;
+  }
+  while (num > 0xffffffff) {
+    num /= 0xffffffff;
+    h ^= num;
+  }
+
+  return h;
 }
 
 // http://jsperf.com/hashing-strings
