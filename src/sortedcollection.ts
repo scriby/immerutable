@@ -182,17 +182,11 @@ export class SortedCollectionAdapter<T> {
     containerInfo.node.items.splice(containerInfo.index, 1);
     const isLeafNode = this.isLeafNode(containerInfo.node);
 
-    // When removing from an internal node, take the last item of the left subtree or first item of the right subtree.
+    // When removing from an internal node, take the last item of the left subtree.
     // Then, start rebalancing from the leaf node from which the item was taken.
     if (!isLeafNode) {
       const leftSibling = containerInfo.node.children![containerInfo.index];
-      let valueInfo;
-      if (leftSibling) {
-        valueInfo = this.lookupRightMostValueWithParentPath(leftSibling, nodeInfo.parentPath);
-      } else {
-        const rightSibling = containerInfo.node.children![containerInfo.index + 1];
-        valueInfo = this.lookupLeftMostValueWithParentPath(rightSibling, nodeInfo.parentPath);
-      }
+      const valueInfo = this.lookupRightMostValueWithParentPath(leftSibling, nodeInfo.parentPath);
 
       const valueContainer = valueInfo.parentPath[valueInfo.parentPath.length - 1];
       valueContainer.node.items.splice(valueContainer.index);
@@ -213,43 +207,43 @@ export class SortedCollectionAdapter<T> {
     // No rebalancing is necessary if the current node meets btree constraints
     if (this.isNodeDeficient(containerInfo.node, isLeafNode)) {
       const parentInfo = parentPath[parentPath.length - 2]!;
-      const rightLeafSibling = parentInfo.node.children![parentInfo.index + 1];
+      const rightSibling = parentInfo.node.children![parentInfo.index + 1];
 
       // The node has a right sibling that can spare an item.
-      if (rightLeafSibling && this.canNodeLoseItem(rightLeafSibling, isLeafNode)) {
-        const rightItem = rightLeafSibling.items.shift()!;
+      if (rightSibling && this.canNodeLoseItem(rightSibling, isLeafNode)) {
+        const rightItem = rightSibling.items.shift()!;
         const separator = parentInfo.node.items.splice(parentInfo.index, 1, rightItem)[0];
         containerInfo.node.items.push(separator);
 
         if (!isLeafNode) {
-          containerInfo.node.children!.push(rightLeafSibling.children!.shift()!);
+          containerInfo.node.children!.push(rightSibling.children!.shift()!);
         }
 
         return;
       }
 
-      const leftLeafSibling = parentInfo.node.children![parentInfo.index - 1];
+      const leftSibling = parentInfo.node.children![parentInfo.index - 1];
 
       // The node has a left sibling that can spare an item.
-      if (leftLeafSibling && this.canNodeLoseItem(leftLeafSibling, isLeafNode)) {
-        const leftItem = leftLeafSibling.items.pop()!;
+      if (leftSibling && this.canNodeLoseItem(leftSibling, isLeafNode)) {
+        const leftItem = leftSibling.items.pop()!;
         const separator = parentInfo.node.items.splice(parentInfo.index - 1, 1, leftItem)[0];
         containerInfo.node.items.unshift(separator);
 
         if (!isLeafNode) {
-          containerInfo.node.children!.unshift(leftLeafSibling.children!.pop()!);
+          containerInfo.node.children!.unshift(leftSibling.children!.pop()!);
         }
 
         return;
       }
 
-      const separator = parentInfo.node.items.splice(leftLeafSibling ? parentInfo.index - 1 : parentInfo.index, 1)[0];
+      const separator = parentInfo.node.items.splice(leftSibling ? parentInfo.index - 1 : parentInfo.index, 1)[0];
 
       // Both left and right siblings are deficient. Combine them into one node.
-      const copyInto = leftLeafSibling || containerInfo.node;
-      const copyFrom = leftLeafSibling ? containerInfo.node : rightLeafSibling;
+      const copyInto = leftSibling || containerInfo.node;
+      const copyFrom = leftSibling ? containerInfo.node : rightSibling;
 
-      parentInfo.node.children!.splice(leftLeafSibling ? parentInfo.index : parentInfo.index + 1, 1);
+      parentInfo.node.children!.splice(leftSibling ? parentInfo.index : parentInfo.index + 1, 1);
       parentInfo.index--;
       copyInto.items.push(separator);
       copyInto.items.push.apply(copyInto.items, copyFrom.items);
@@ -281,20 +275,9 @@ export class SortedCollectionAdapter<T> {
       (!isLeafNode && node.children!.length > this.minItemsPerLevel);
   }
 
-  private lookupLeftMostValueWithParentPath(
-    node: IBTreeNode<T>,
-    parentPath: ParentPath<T> = []
-  ): LookupNodeInfo<T> {
-    if (this.isLeafNode(node)) {
-      return { valueNode: node.items[0], parentPath: parentPath.concat({ node, index: 0 }) };
-    } else {
-      return this.lookupLeftMostValueWithParentPath(node.children![0], parentPath.concat({ node, index: 0 }));
-    }
-  }
-
   private lookupRightMostValueWithParentPath(
     node: IBTreeNode<T>,
-    parentPath: ParentPath<T> = []
+    parentPath: ParentPath<T>
   ): LookupNodeInfo<T> {
 
     if (this.isLeafNode(node)) {

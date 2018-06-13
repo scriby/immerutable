@@ -137,6 +137,15 @@ describe('map', () => {
     expect(map.size).toBe(0);
   });
 
+  test('removes a non-existent item', () => {
+    const adapter = new MapAdapter();
+    const map = adapter.create();
+
+    adapter.remove(map, 1);
+
+    expect(adapter.has(map, 1)).toBe(false);
+  });
+
   test('updates an item', () => {
     const adapter = new MapAdapter<number, typeof testValue>();
     const map = adapter.create();
@@ -216,7 +225,10 @@ describe('map', () => {
       adapter.set(map, i, { ...testValue, x: i });
     }
 
-    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(1, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
+    // Get coverage on "if (child === undefined) {" in map.ts.
+    adapter.remove(map, 1);
+
+    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(2, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
   });
 
   test('iterates through maxDepth map entries', () => {
