@@ -1,19 +1,21 @@
 import * as rng from 'number-generator';
-import {MapAdapter} from '../src/map';
+import {SortedSetAdapter} from '../src/sortedset';
 import {getSeed} from './util';
 
 const seed = getSeed();
 
-describe(`Map (fuzz) (Seed: ${seed})`, () => {
+describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
   it('Retains consistency over many sets', () => {
     const random = rng.aleaRNGFactory(seed);
-    const adapter = new MapAdapter<number, { data: number }>();
+    const adapter = new SortedSetAdapter<number, { data: number, order: number }, number>({
+      getOrderingKey: item => item.order,
+    });
     const map = adapter.create();
     const expected = Object.create(null);
 
     for (let i = 0; i < 200000; i++) {
       const value = random.uInt32();
-      const data = { data: value };
+      const data = { data: value, order: value };
       adapter.set(map, value, data);
       expected[value] = data;
     }
@@ -24,14 +26,19 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
       expect(adapter.get(map, Number(key))).toEqual(expected[key]);
     }
 
+    let lastOrder = -Infinity;
     for (const {key, value} of adapter.getIterable(map)) {
+      expect(value.order).toBeGreaterThanOrEqual(lastOrder);
+      lastOrder = value.order;
       expect(value).toEqual(expected[key]);
     }
   });
 
   it('Adds and removes randomly', () => {
     const random = rng.aleaRNGFactory(seed);
-    const adapter = new MapAdapter<number, { data: number}>();
+    const adapter = new SortedSetAdapter<number, { data: number, order: number }, number>({
+      getOrderingKey: item => item.order,
+    });
     const map = adapter.create();
     const expected = Object.create(null);
     const keys = [];
@@ -40,7 +47,7 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
       // 2/3 of the time, add a random value
       if (random.uFloat32() < .67) {
         const value = random.uInt32();
-        const data = { data: value };
+        const data = { data: value, order: value % 5 }; // Mod value by 5 to increase collisions
         adapter.set(map, value, data);
         expected[value] = data;
         keys.push(value);
@@ -60,7 +67,10 @@ describe(`Map (fuzz) (Seed: ${seed})`, () => {
       expect(adapter.get(map, Number(key))).toEqual(expected[key]);
     }
 
+    let lastOrder = -Infinity;
     for (const {key, value} of adapter.getIterable(map)) {
+      expect(value.order).toBeGreaterThanOrEqual(lastOrder);
+      lastOrder = value.order;
       expect(value).toEqual(expected[key]);
     }
   });
