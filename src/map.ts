@@ -29,12 +29,31 @@ export interface ISingleValueNode<K, V> {
   value: V;
 }
 
+/**
+ * This adapter class can be used to interact with an Immerutable Map stored in the ngrx store.
+ * Immerutable maps are very similar to maps provided by ImmutableJS. They use a trie structure
+ * for structural sharing which allows for items to be inserted and removed without the need
+ * to shallow copy the entire map. The keys used by this map may be strings or numbers only.
+ * Runtimes:
+ * Get/Has: O(1)
+ * Set: O(1)
+ * Remove: O(1)
+ */
 export class MapAdapter<K extends Key, V> {
+  /** The number of bits to use per level of the trie. */
   protected shift = 4;
+  /** The maximum length of an internal node in the map (containing value and child pointers). */
   protected trieNodeSize = 1 << this.shift;
+  /** The mask used to grab the last "shift" bits from the key. */
   protected mask = this.trieNodeSize - 1;
+  /** The maximum number of levels in the tree (when we've used up all the bits in the key). */
   protected maxDepth = Math.ceil(32 / this.shift);
 
+  /**
+   * Creates a new Immerutable map. This map should be stored in the ngrx store.
+   * It should not be modified or read from directly. All interaction with this
+   * map should happen through this adapter class.
+   */
   create(): IMap<K, V> {
     return {
       root: this.createTrieNode(),
@@ -42,6 +61,7 @@ export class MapAdapter<K extends Key, V> {
     };
   }
 
+  /** Returns true if the map contains the key, false otherwise. */
   has(map: IMap<K, V>, key: K): boolean {
     const {valueNode, depth} = this.lookupValueNode(map, key);
 
@@ -54,6 +74,7 @@ export class MapAdapter<K extends Key, V> {
     }
   }
 
+  /** Gets the value for the specified key. If the key does not exist, undefined is returned. */
   get(map: IMap<K, V>, key: K): V|undefined {
     const {valueNode, depth} = this.lookupValueNode(map, key);
 
@@ -68,6 +89,10 @@ export class MapAdapter<K extends Key, V> {
     }
   }
 
+  /**
+   * Stores the specified value in the map using the specified key.
+   * If the key already exists, it will be replaced with the new value.
+   */
   set(map: IMap<K, V>, key: K, value: V): void {
     const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
 
@@ -101,6 +126,9 @@ export class MapAdapter<K extends Key, V> {
     }
   }
 
+  /**
+   * Removes the specified key from the map. If the key does not exist, this is a no-op.
+   */
   remove(map: IMap<K, V>, key: K): void {
     const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
 
@@ -115,6 +143,21 @@ export class MapAdapter<K extends Key, V> {
     }
   }
 
+  /**
+   * Updates the value of the specified key in the map using an updater function.
+   * The updater function will receive the existing value, and may either mutate it directly
+   * or return a new value, which will take its place.
+   * If the key is not found, the updater function is not called and no update is made.
+   *
+   * Example:
+   * ```
+   * const adapter = new MapAdapter<number, { data: string }>();
+   * const map = adapter.create();
+   *
+   * adapter.set(map, 1, { data: 'one' });
+   * adapter.update(map, 1, (value) => { value.data = 'ichi'; });
+   * ```
+   */
   update(map: IMap<K, V>, key: K, updater: (item: V) => V|void|undefined): V|undefined {
     const {depth, valueNode} = this.lookupValueNode(map, key);
     if (valueNode === undefined) return;
@@ -141,67 +184,44 @@ export class MapAdapter<K extends Key, V> {
     }
   }
 
+  /** Gets the number of keys in the map. */
   getSize(map: IMap<K, V>): number {
     return map.size;
   }
 
-  private createTrieNode(): ITrieNode<K, V> {
-    return [];
-  }
-
-  private createSingleValueNode(key: K, value: V) {
-    return { key: key, value: value };
-  }
-
-  private createValueNode(): IMultiValueNode<K, V> {
-    return {
-      map: Object.create(null),
-    };
-  }
-
-  private lookupValueNode(map: IMap<K, V>, key: K) {
-    let hashCode = hash(key);
-    let node: ITrieNode<K, V> = map.root;
-    let index = 0;
-    let depth = 1;
-    let valueNode: IMultiValueNode<K, V> | ISingleValueNode<K, V> | undefined;
-
-    while (depth <= this.maxDepth) {
-      index = this.computePartialHashCode(hashCode, depth);
-      depth++;
-
-      let nextNode: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V> = node[index];
-      if (nextNode === undefined) {
-        valueNode = undefined;
-        break;
-      } else if (Array.isArray(nextNode)) {
-        node = nextNode;
-      } else {
-        valueNode = nextNode as IMultiValueNode<K, V> | ISingleValueNode<K, V>;
-        break;
-      }
-    }
-
-    return { containingTrieNode: node, depth, index, valueNode };
-  }
-
-  private pushSingleValueNodeDown(trieNode: ITrieNode<K, V>, index: number, depth: number) {
-    const singleValueNode = trieNode[index] as ISingleValueNode<K, V>;
-    const newTrieNode = trieNode[index] = this.createTrieNode();
-    const partialHash = this.computePartialHashCode(hash(singleValueNode.key), depth);
-
-    if (depth === this.maxDepth - 1) {
-      const newValueNode = newTrieNode[partialHash] = this.createValueNode();
-      newValueNode.map[singleValueNode.key as Key] = singleValueNode;
-    } else {
-      newTrieNode[partialHash] = singleValueNode;
-    }
-  }
-
-  private computePartialHashCode(hashCode: number, depth: number) {
-    return (hashCode >> ((depth - 1) * this.shift)) & this.mask;
-  }
-
+  /**
+   * Returns an Iterable which can be used to iterate through all the keys & values in the map.
+   * Order of iteration is not guaranteed, however it will be consistent across multiple iterations.
+   * DO NOT add or remove items from the map while iterating!
+   *
+   * This method requires Symbol.iterator or a polyfill. If using Typescript and compiling to ES5, the
+   * downlevelIteration setting is recommended. Note that the iterable can be passed to Array.from to convert
+   * to an array (note that this incurs a larger performance and memory cost compared to just iterating).
+   *
+   * Example (ES6 or ES5 w/ downlevelIteration):
+   * ```
+   * const adapter = new MapAdapter<string, T>();
+   * ...
+   *
+   * for ({key, value} of adapter.getIterable(map)) {
+   *   console.log(key, value);
+   * }
+   * ```
+   *
+   * Example (old school):
+   * ```
+   * const adapter = new MapAdapter<string, T>();
+   * ...
+   *
+   * const iterable = adapter.getIterable(map);
+   * const iterator = iterable[Symbol.iterator](); // May need Symbol.iterator polyfill
+   * let next: T;
+   * while (!(next = iterator.next()).done) {
+   *   const {key, value} = next.value;
+   *   console.log(key, value);
+   * }
+   * ```
+   */
   getIterable(map: IMap<K, V>): Iterable<ISingleValueNode<K, V>> {
     type Frame = {
       index: number,
@@ -263,5 +283,62 @@ export class MapAdapter<K extends Key, V> {
         };
       }
     };
+  }
+
+  private createTrieNode(): ITrieNode<K, V> {
+    return [];
+  }
+
+  private createSingleValueNode(key: K, value: V) {
+    return { key: key, value: value };
+  }
+
+  private createValueNode(): IMultiValueNode<K, V> {
+    return {
+      map: Object.create(null),
+    };
+  }
+
+  private lookupValueNode(map: IMap<K, V>, key: K) {
+    let hashCode = hash(key);
+    let node: ITrieNode<K, V> = map.root;
+    let index = 0;
+    let depth = 1;
+    let valueNode: IMultiValueNode<K, V> | ISingleValueNode<K, V> | undefined;
+
+    while (depth <= this.maxDepth) {
+      index = this.computePartialHashCode(hashCode, depth);
+      depth++;
+
+      let nextNode: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V> = node[index];
+      if (nextNode === undefined) {
+        valueNode = undefined;
+        break;
+      } else if (Array.isArray(nextNode)) {
+        node = nextNode;
+      } else {
+        valueNode = nextNode as IMultiValueNode<K, V> | ISingleValueNode<K, V>;
+        break;
+      }
+    }
+
+    return { containingTrieNode: node, depth, index, valueNode };
+  }
+
+  private pushSingleValueNodeDown(trieNode: ITrieNode<K, V>, index: number, depth: number) {
+    const singleValueNode = trieNode[index] as ISingleValueNode<K, V>;
+    const newTrieNode = trieNode[index] = this.createTrieNode();
+    const partialHash = this.computePartialHashCode(hash(singleValueNode.key), depth);
+
+    if (depth === this.maxDepth - 1) {
+      const newValueNode = newTrieNode[partialHash] = this.createValueNode();
+      newValueNode.map[singleValueNode.key as Key] = singleValueNode;
+    } else {
+      newTrieNode[partialHash] = singleValueNode;
+    }
+  }
+
+  private computePartialHashCode(hashCode: number, depth: number) {
+    return (hashCode >> ((depth - 1) * this.shift)) & this.mask;
   }
 }
