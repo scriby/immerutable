@@ -3,7 +3,7 @@ import {SortedCollectionAdapter} from '../src/sortedcollection';
 require('source-map-support').install();
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
 import {MapAdapter} from '../src/map';
-import {SortedSetAdapter} from '../src/sortedset';
+import {SortedMapAdapter} from '../src/sortedmap';
 
 setUseProxies(true);
 setAutoFreeze(false);
@@ -72,7 +72,7 @@ function immerutableBtree() {
 }
 
 function immerutableSortedSet() {
-  const sortedSet = new SortedSetAdapter<string, Obj, number>({
+  const sortedSet = new SortedMapAdapter<string, Obj, number>({
     getOrderingKey: (obj: Obj) => obj.order!,
   });
 

@@ -28,16 +28,31 @@ export type EqualityComparer<T> = (a: T, b: T) => boolean;
 
 const MAX_ITEMS_PER_LEVEL = 64; // Must be even for this implementation
 
-// Internal node layout: [ Child, Value, Child, Value, Child, ... ]
-// Value node layout: [ Value, Value, Value, Value... ]
-// Root starts as a value node and then looks like an internal node once it gets too large and splits
-
+/**
+ * This adapter class can be used to interact with an Immerutable Sorted Collection stored in the ngrx store.
+ * This collection is backed by a B-tree which can efficiently handle insertions and deletions while maintaining
+ * the sorted order of the collection. B-trees also allow for structural sharing such that only a portion
+ * of the data structure needs to be shallow copied when items are added or removed.
+ *
+ * This data structure allows duplicates and does not provide key-based lookups. A SortedMap should be used instead
+ * if these properties are desirable.
+ *
+ * Runtimes:
+ * Insert: O(log(n))
+ * Remove: O(log(n))
+ * Iterate: O(n)
+ */
 export class SortedCollectionAdapter<T> {
   orderComparer: Comparer<T>;
   equalityComparer: EqualityComparer<T>;
   private maxItemsPerLevel: number;
   private minItemsPerLevel: number;
 
+  /**
+   * @param args.orderComparer A function which compares two values (similar to Array.sort). Used for ordering this collection.
+   * @param args.equalityComparer A function which tests two values for equality. Optional (by default uses ===).
+   * @param args.maxItemsPerLevel Don't set this value; it is only available for use in unit testing.
+   */
   constructor(args: {
     orderComparer: Comparer<T>,
     equalityComparer?: EqualityComparer<T>,
@@ -53,15 +68,44 @@ export class SortedCollectionAdapter<T> {
     this.minItemsPerLevel = Math.floor(this.maxItemsPerLevel / 2);
   }
 
+  /**
+   * Creates a new Immerutable Sorted Collection. This collection should be stored in the ngrx store.
+   * It should not be modified or read from directly. All interaction with this collection should
+   * happen through this adapter class.
+   */
   create(): IBTree<T> {
     return this.createBTreeRootNode();
   }
 
-  insert(tree: IBTree<T>, value: T): void {
-    this.insertInBTreeNode(tree.root, tree.root, undefined, value);
+  /** Inserts an item into the collection in sorted order. */
+  insert(collection: IBTree<T>, value: T): void {
+    this.insertInBTreeNode(collection.root, collection.root, undefined, value);
   }
 
-  ensureSortedOrderOfNode(tree: IBTree<T>, nodeInfo: LookupNodeInfo<T>): void {
+
+  update(collection: IBTree<T>, value: T, updater: (item: T) => T|void|undefined): void {
+    const existing = this._lookupValuePath(collection.root, value);
+    if (!existing) return;
+
+    const updated = updater(existing.valueNode.value);
+
+    // Replace the value if a new value was returned.
+    if (updated !== undefined) {
+      const parentNode = existing.parentPath[existing.parentPath.length - 1];
+      parentNode.node.items[parentNode.index].value = updated;
+      existing.valueNode.value = updated;
+    }
+
+    this.ensureSortedOrderOfNode(collection, existing);
+  }
+
+  /**
+   * Ensures that a value is still in sorted order after being mutated.
+   * In general, prefer using the "update" method instead.
+   *
+   * @param nodeInfo The return value of of calling lookupValuePath for the value being mutated.
+   */
+  ensureSortedOrderOfNode(collection: IBTree<T>, nodeInfo: LookupNodeInfo<T>): void {
     const proceedingItem = this.getPreviousValue(nodeInfo.parentPath);
     const nextItem = this.getNextValue(nodeInfo.parentPath);
     const value = nodeInfo.valueNode.value;
@@ -72,20 +116,89 @@ export class SortedCollectionAdapter<T> {
     ) {
       // Item is out of order, remove and re-insert it to fix up the order.
       this.removeByPath(nodeInfo);
-      this.insert(tree, value);
+      this.insert(collection, value);
     }
   }
 
-  getFirst(tree: IBTree<T>): T|undefined {
-    if (tree.root.items.length === 0) return;
-
-    return this.getFurthestLeftValue(tree.root);
+  lookupValuePath(collection: IBTree<T>, value: T): LookupNodeInfo<T>|undefined {
+    return this._lookupValuePath(collection.root, value);
   }
 
-  getLast(tree: IBTree<T>): T|undefined {
-    if (tree.root.items.length === 0) return;
+  getFirst(collection: IBTree<T>): T|undefined {
+    if (collection.root.items.length === 0) return;
 
-    return this.getFurthestRightValue(tree.root);
+    return this.getFurthestLeftValue(collection.root);
+  }
+
+  getLast(collection: IBTree<T>): T|undefined {
+    if (collection.root.items.length === 0) return;
+
+    return this.getFurthestRightValue(collection.root);
+  }
+
+  remove(collection: IBTree<T>, value: T): void {
+    const existingInfo = this._lookupValuePath(collection.root, value);
+    if (existingInfo === undefined) return;
+
+    return this.removeByPath(existingInfo);
+  }
+
+  getIterable(collection: IBTree<T>): Iterable<T> {
+    type Frame = {
+      index: number,
+      onChildren: boolean,
+      items: IBTreeValueNode<T>[],
+      children?: IBTreeNode<T>[]
+    };
+    const stack: Frame[] = [{ onChildren: true, index: 0, items: collection.root.items, children: collection.root.children }];
+
+    function traverseToFurthestLeft(frame: Frame): T|undefined {
+      if (frame === undefined) return undefined;
+
+      if (
+        frame.index < frame.items.length ||
+        (frame.children !== undefined && frame.onChildren && frame.index < frame.children.length)
+      ) {
+        if (frame.children !== undefined && frame.onChildren) {
+          const child = frame.children[frame.index];
+          const nextFrame = { items: child.items, onChildren: true, children: child.children, index: 0 };
+          stack.push(nextFrame);
+
+          frame.onChildren = false;
+          return traverseToFurthestLeft(nextFrame);
+        } else {
+          const item = frame.items[frame.index++];
+          frame.onChildren = true;
+          return item.value;
+        }
+      } else {
+        stack.pop();
+
+        return traverseToFurthestLeft(stack[stack.length - 1]);
+      }
+    }
+
+    return {
+      [Symbol.iterator]: () => {
+        return {
+          next: () => {
+            const value = traverseToFurthestLeft(stack[stack.length - 1]);
+
+            if (value !== undefined) {
+              return {
+                value: value as T,
+                done: false,
+              };
+            } else {
+              return {
+                value: undefined as any as T,
+                done: true,
+              };
+            }
+          }
+        };
+      }
+    };
   }
 
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|undefined, parentIndex: number|undefined, value: T): void {
@@ -168,13 +281,6 @@ export class SortedCollectionAdapter<T> {
 
   private findRecursionIndex(node: IBTreeNode<T>, value: T) {
     return this.binarySearch(node.items, value);
-  }
-
-  remove(tree: IBTree<T>, value: T): void {
-    const existingInfo = this.lookupValuePath(tree, value);
-    if (existingInfo === undefined) return;
-
-    return this.removeByPath(existingInfo);
   }
 
   private removeByPath(nodeInfo: LookupNodeInfo<T>): void {
@@ -341,13 +447,6 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  lookupValuePath(
-    tree: IBTree<T>,
-    value: T,
-  ): LookupNodeInfo<T>|undefined {
-    return this._lookupValuePath(tree.root, value);
-  }
-
   private _lookupValuePath(
     node: IBTreeNode<T>,
     value: T,
@@ -456,64 +555,6 @@ export class SortedCollectionAdapter<T> {
   private createBTreeValueNode(value: T) {
     return {
       'value': value,
-    };
-  }
-
-  getIterable(tree: IBTree<T>): Iterable<T> {
-    type Frame = {
-      index: number,
-      onChildren: boolean,
-      items: IBTreeValueNode<T>[],
-      children?: IBTreeNode<T>[]
-    };
-    const stack: Frame[] = [{ onChildren: true, index: 0, items: tree.root.items, children: tree.root.children }];
-
-    function traverseToFurthestLeft(frame: Frame): T|undefined {
-      if (frame === undefined) return undefined;
-
-      if (
-        frame.index < frame.items.length ||
-        (frame.children !== undefined && frame.onChildren && frame.index < frame.children.length)
-      ) {
-        if (frame.children !== undefined && frame.onChildren) {
-          const child = frame.children[frame.index];
-          const nextFrame = { items: child.items, onChildren: true, children: child.children, index: 0 };
-          stack.push(nextFrame);
-
-          frame.onChildren = false;
-          return traverseToFurthestLeft(nextFrame);
-        } else {
-          const item = frame.items[frame.index++];
-          frame.onChildren = true;
-          return item.value;
-        }
-      } else {
-        stack.pop();
-
-        return traverseToFurthestLeft(stack[stack.length - 1]);
-      }
-    }
-
-    return {
-      [Symbol.iterator]: () => {
-        return {
-          next: () => {
-            const value = traverseToFurthestLeft(stack[stack.length - 1]);
-
-            if (value !== undefined) {
-              return {
-                value: value as T,
-                done: false,
-              };
-            } else {
-              return {
-                value: undefined as any as T,
-                done: true,
-              };
-            }
-          }
-        };
-      }
     };
   }
 }

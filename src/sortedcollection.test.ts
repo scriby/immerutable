@@ -90,7 +90,7 @@ describe('B-tree', () => {
     adapter.remove(btree, 3);
     adapter.remove(btree, 2);
 
-    expect(Array.from(adapter.getIterable(btree))).toEqual([ 1 ].concat(range(4, 10)));
+    expect(Array.from(adapter.getIterable(btree))).toEqual([1].concat(range(4, 10)));
   });
 
   test('removes items (left rotation)', () => {
@@ -240,14 +240,14 @@ describe('B-tree', () => {
   test('removes items from middle', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
-    const removalOrder = [ 10, 11, 9, 12, 8, 13, 7, 14, 6, 15, 5, 16, 4, 17, 3, 18, 2, 19, 1, 20 ];
+    const removalOrder = [10, 11, 9, 12, 8, 13, 7, 14, 6, 15, 5, 16, 4, 17, 3, 18, 2, 19, 1, 20];
 
     for (let i = 1; i <= 20; i++) {
       adapter.insert(btree, i);
     }
 
     for (let i = 0; i < 20; i++) {
-      adapter.remove(btree, removalOrder[ i ]);
+      adapter.remove(btree, removalOrder[i]);
 
       expect(Array.from(adapter.getIterable(btree))).toEqual(removalOrder.slice(i + 1).sort((a, b) => a - b));
     }
@@ -345,13 +345,11 @@ describe('B-tree', () => {
     const items = [];
 
     for (let i = 1; i <= 20; i++) {
-      items[ i ] = { key: i.toString(), order: i };
-      adapter.insert(btree, items[ items.length - 1 ]);
+      items[i] = { key: i.toString(), order: i };
+      adapter.insert(btree, items[items.length - 1]);
     }
 
-    const nodeInfo = adapter.lookupValuePath(btree, items[ 10 ])!;
-    items[ 10 ].order = 30;
-    adapter.ensureSortedOrderOfNode(btree, nodeInfo);
+    adapter.update(btree, items[10], (item) => { item.order = 30; });
 
     expect(Array.from(adapter.getIterable(btree))).toEqual(
       range(1, 9).concat(range(11, 20)).map(i => ({ key: i.toString(), order: i })).concat({ key: '10', order: 30 })
@@ -364,13 +362,11 @@ describe('B-tree', () => {
     const items = [];
 
     for (let i = 1; i <= 20; i++) {
-      items[ i ] = { key: i.toString(), order: i };
-      adapter.insert(btree, items[ items.length - 1 ]);
+      items[i] = { key: i.toString(), order: i };
+      adapter.insert(btree, items[items.length - 1]);
     }
 
-    const nodeInfo = adapter.lookupValuePath(btree, items[ 1 ])!;
-    items[ 1 ].order = 30;
-    adapter.ensureSortedOrderOfNode(btree, nodeInfo);
+    adapter.update(btree, items[1], (item) => { item.order = 30; });
 
     expect(Array.from(adapter.getIterable(btree))).toEqual(
       range(2, 20).map(i => ({ key: i.toString(), order: i })).concat({ key: '1', order: 30 })
@@ -383,16 +379,14 @@ describe('B-tree', () => {
     const items = [];
 
     for (let i = 1; i <= 20; i++) {
-      items[ i ] = { key: i.toString(), order: i };
-      adapter.insert(btree, items[ items.length - 1 ]);
+      items[i] = { key: i.toString(), order: i };
+      adapter.insert(btree, items[items.length - 1]);
     }
 
-    const nodeInfo = adapter.lookupValuePath(btree, items[ 20 ])!;
-    items[ 20 ].order = 0;
-    adapter.ensureSortedOrderOfNode(btree, nodeInfo);
+    adapter.update(btree, items[20], (item) => { item.order = 0; });
 
     expect(Array.from(adapter.getIterable(btree))).toEqual(
-      [ { key: '20', order: 0 } ].concat(range(1, 19).map(i => ({ key: i.toString(), order: i })))
+      [{ key: '20', order: 0 }].concat(range(1, 19).map(i => ({ key: i.toString(), order: i })))
     )
   });
 

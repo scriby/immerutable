@@ -1,5 +1,5 @@
 import * as rng from 'number-generator';
-import {SortedSetAdapter} from '../src/sortedset';
+import {SortedMapAdapter} from '../src/sortedmap';
 import {getSeed} from './util';
 
 const seed = getSeed();
@@ -7,7 +7,7 @@ const seed = getSeed();
 describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
   it('Retains consistency over many sets', () => {
     const random = rng.aleaRNGFactory(seed);
-    const adapter = new SortedSetAdapter<number, { data: number, order: number }, number>({
+    const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
       getOrderingKey: item => item.order,
     });
     const map = adapter.create();
@@ -36,7 +36,7 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
 
   it('Adds and removes randomly', () => {
     const random = rng.aleaRNGFactory(seed);
-    const adapter = new SortedSetAdapter<number, { data: number, order: number }, number>({
+    const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
       getOrderingKey: item => item.order,
     });
     const map = adapter.create();

@@ -34,10 +34,13 @@ export interface ISingleValueNode<K, V> {
  * Immerutable maps are very similar to maps provided by ImmutableJS. They use a trie structure
  * for structural sharing which allows for items to be inserted and removed without the need
  * to shallow copy the entire map. The keys used by this map may be strings or numbers only.
+ *
  * Runtimes:
  * Get/Has: O(1)
  * Set: O(1)
  * Remove: O(1)
+ * Iterate: O(n)
+ * Note: The constant factor for these operations will be considerably higher than for standard maps.
  */
 export class MapAdapter<K extends Key, V> {
   /** The number of bits to use per level of the trie. */

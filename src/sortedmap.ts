@@ -8,14 +8,14 @@ export interface IKeyWithOrder<K, O> {
   order: O;
 }
 
-export interface ISortedSet<K, V, O> {
+export interface ISortedMap<K, V, O> {
   map: IMap<K, V>,
   sortedCollection: IBTree<IKeyWithOrder<K, O>>,
 }
 
 export type GetOrderingKey<V, O> = (value: V) => O;
 
-export class SortedSetAdapter<K extends Key, V, O> {
+export class SortedMapAdapter<K extends Key, V, O> {
   private getOrderingKey: GetOrderingKey<V, O>;
   private mapAdapter = new MapAdapter<K, V>();
   private sortedCollectionAdapter: SortedCollectionAdapter<IKeyWithOrder<K, O>>;
@@ -36,18 +36,18 @@ export class SortedSetAdapter<K extends Key, V, O> {
     });
   }
 
-  create(): ISortedSet<K, V, O> {
+  create(): ISortedMap<K, V, O> {
     return {
       map: this.mapAdapter.create(),
       sortedCollection: this.sortedCollectionAdapter.create(),
     };
   }
 
-  get(sortedSet: ISortedSet<K ,V, O>, key: K): V|undefined {
+  get(sortedSet: ISortedMap<K ,V, O>, key: K): V|undefined {
     return this.mapAdapter.get(sortedSet.map, key);
   }
 
-  getIterable(sortedSet: ISortedSet<K, V, O>): Iterable<{ key: K, value: V }> {
+  getIterable(sortedSet: ISortedMap<K, V, O>): Iterable<{ key: K, value: V }> {
     return {
       [Symbol.iterator]: () => {
         const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedSet.sortedCollection)[Symbol.iterator]();
@@ -67,7 +67,7 @@ export class SortedSetAdapter<K extends Key, V, O> {
     }
   }
 
-  set(sortedSet: ISortedSet<K, V, O>, key: K, value: V): void {
+  set(sortedSet: ISortedMap<K, V, O>, key: K, value: V): void {
     const exists = this.mapAdapter.has(sortedSet.map, key);
     this.mapAdapter.set(sortedSet.map, key, value);
 
@@ -76,7 +76,7 @@ export class SortedSetAdapter<K extends Key, V, O> {
     }
   }
 
-  remove(sortedSet: ISortedSet<K, V, O>, key: K): void {
+  remove(sortedSet: ISortedMap<K, V, O>, key: K): void {
     const existing = this.mapAdapter.get(sortedSet.map, key);
     if (existing === undefined) return;
 
@@ -84,7 +84,7 @@ export class SortedSetAdapter<K extends Key, V, O> {
     this.mapAdapter.remove(sortedSet.map, key);
   }
 
-  update(sortedSet: ISortedSet<K, V, O>, key: K, updater: (item: V) => V|void): void {
+  update(sortedSet: ISortedMap<K, V, O>, key: K, updater: (item: V) => V|void): void {
     const existing = this.mapAdapter.get(sortedSet.map, key);
     if (!existing) return;
 
@@ -108,18 +108,18 @@ export class SortedSetAdapter<K extends Key, V, O> {
     this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedSet.sortedCollection, existingSorted);
   }
 
-  getSize(sortedSet: ISortedSet<K, V, O>): number {
+  getSize(sortedSet: ISortedMap<K, V, O>): number {
     return this.mapAdapter.getSize(sortedSet.map);
   }
 
-  getFirst(sortedSet: ISortedSet<K, V, O>): V|undefined {
+  getFirst(sortedSet: ISortedMap<K, V, O>): V|undefined {
     const firstKeyWithOrder = this.sortedCollectionAdapter.getFirst(sortedSet.sortedCollection);
     if (firstKeyWithOrder === undefined) return;
 
     return this.mapAdapter.get(sortedSet.map, firstKeyWithOrder.key);
   }
 
-  getLast(sortedSet: ISortedSet<K, V, O>): V|undefined {
+  getLast(sortedSet: ISortedMap<K, V, O>): V|undefined {
     const lastKeyWithOrder = this.sortedCollectionAdapter.getLast(sortedSet.sortedCollection);
     if (lastKeyWithOrder === undefined) return;
 
