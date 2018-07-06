@@ -288,11 +288,16 @@ export class SortedCollectionAdapter<T> {
     containerInfo.node.items.splice(containerInfo.index, 1);
     const isLeafNode = this.isLeafNode(containerInfo.node);
 
-    // When removing from an internal node, take the last item of the left subtree.
+    // When removing from an internal node, take the last item of the left subtree or first item of the right subtree.
     // Then, start rebalancing from the leaf node from which the item was taken.
     if (!isLeafNode) {
       const leftSibling = containerInfo.node.children![containerInfo.index];
-      const valueInfo = this.lookupRightMostValueWithParentPath(leftSibling, nodeInfo.parentPath);
+      let valueInfo = this.lookupRightMostValueWithParentPath(leftSibling, nodeInfo.parentPath);
+
+      if (valueInfo.valueNode === undefined) {
+        const rightSibling = containerInfo.node.children![containerInfo.index + 1];
+        valueInfo = this.lookupLeftMostValueWithParentPath(rightSibling, nodeInfo.parentPath);
+      }
 
       const valueContainer = valueInfo.parentPath[valueInfo.parentPath.length - 1];
       valueContainer.node.items.splice(valueContainer.index);
@@ -379,6 +384,23 @@ export class SortedCollectionAdapter<T> {
   private canNodeLoseItem(node: IBTreeNode<T>, isLeafNode: boolean) {
     return (isLeafNode && node.items.length > this.minItemsPerLevel) ||
       (!isLeafNode && node.children!.length > this.minItemsPerLevel);
+  }
+
+  private lookupLeftMostValueWithParentPath(
+    node: IBTreeNode<T>,
+    parentPath: ParentPath<T> = []
+  ): LookupNodeInfo<T> {
+    if (this.isLeafNode(node)) {
+      return {
+        valueNode: node.items[0],
+        parentPath: parentPath.concat({ node, index: 0 })
+      };
+    } else {
+      return this.lookupLeftMostValueWithParentPath(
+        node.children![0],
+        parentPath.concat({ node, index: 0 })
+      );
+    }
   }
 
   private lookupRightMostValueWithParentPath(

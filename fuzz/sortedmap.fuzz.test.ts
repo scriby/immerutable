@@ -2,6 +2,7 @@ import * as rng from 'number-generator';
 import {SortedMapAdapter} from '../src/sortedmap';
 import {getSeed} from './util';
 
+//3662728131053617
 const seed = getSeed();
 
 describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
@@ -48,6 +49,7 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
       if (random.uFloat32() < .67) {
         const value = random.uInt32();
         const data = { data: value, order: value % 5 }; // Mod value by 5 to increase collisions
+
         adapter.set(map, value, data);
         expected[value] = data;
         keys.push(value);
