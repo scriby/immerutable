@@ -43,14 +43,14 @@ export class SortedMapAdapter<K extends Key, V, O> {
     };
   }
 
-  get(sortedSet: ISortedMap<K ,V, O>, key: K): V|undefined {
-    return this.mapAdapter.get(sortedSet.map, key);
+  get(sortedMap: ISortedMap<K ,V, O>, key: K): V|undefined {
+    return this.mapAdapter.get(sortedMap.map, key);
   }
 
-  getIterable(sortedSet: ISortedMap<K, V, O>): Iterable<{ key: K, value: V }> {
+  getIterable(sortedMap: ISortedMap<K, V, O>): Iterable<{ key: K, value: V }> {
     return {
       [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedSet.sortedCollection)[Symbol.iterator]();
+        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection)[Symbol.iterator]();
 
         return {
           next: () => {
@@ -59,7 +59,7 @@ export class SortedMapAdapter<K extends Key, V, O> {
             if (next.done) {
               return { value: undefined as any, done: true };
             } else {
-              return { value: { key: next.value.key, value: this.mapAdapter.get(sortedSet.map, next.value.key)! }, done: false };
+              return { value: { key: next.value.key, value: this.mapAdapter.get(sortedMap.map, next.value.key)! }, done: false };
             }
           }
         };
@@ -67,29 +67,29 @@ export class SortedMapAdapter<K extends Key, V, O> {
     }
   }
 
-  set(sortedSet: ISortedMap<K, V, O>, key: K, value: V): void {
-    const exists = this.mapAdapter.has(sortedSet.map, key);
-    this.mapAdapter.set(sortedSet.map, key, value);
+  set(sortedMap: ISortedMap<K, V, O>, key: K, value: V): void {
+    const exists = this.mapAdapter.has(sortedMap.map, key);
+    this.mapAdapter.set(sortedMap.map, key, value);
 
     if (!exists) {
-      this.sortedCollectionAdapter.insert(sortedSet.sortedCollection, { key, order: this.getOrderingKey(value) });
+      this.sortedCollectionAdapter.insert(sortedMap.sortedCollection, { key, order: this.getOrderingKey(value) });
     }
   }
 
-  remove(sortedSet: ISortedMap<K, V, O>, key: K): void {
-    const existing = this.mapAdapter.get(sortedSet.map, key);
+  remove(sortedMap: ISortedMap<K, V, O>, key: K): void {
+    const existing = this.mapAdapter.get(sortedMap.map, key);
     if (existing === undefined) return;
 
-    this.sortedCollectionAdapter.remove(sortedSet.sortedCollection, { key: key, order: this.getOrderingKey(existing) });
-    this.mapAdapter.remove(sortedSet.map, key);
+    this.sortedCollectionAdapter.remove(sortedMap.sortedCollection, { key: key, order: this.getOrderingKey(existing) });
+    this.mapAdapter.remove(sortedMap.map, key);
   }
 
-  update(sortedSet: ISortedMap<K, V, O>, key: K, updater: (item: V) => V|void): void {
-    const existing = this.mapAdapter.get(sortedSet.map, key);
+  update(sortedMap: ISortedMap<K, V, O>, key: K, updater: (item: V) => V|void): void {
+    const existing = this.mapAdapter.get(sortedMap.map, key);
     if (!existing) return;
 
     const existingSorted = this.sortedCollectionAdapter.lookupValuePath(
-      sortedSet.sortedCollection,
+      sortedMap.sortedCollection,
       { key, order: this.getOrderingKey(existing) },
     );
 
@@ -100,29 +100,29 @@ export class SortedMapAdapter<K extends Key, V, O> {
     const updated = updater(existing);
 
     if (updated !== undefined) {
-      this.mapAdapter.set(sortedSet.map, key, updated);
+      this.mapAdapter.set(sortedMap.map, key, updated);
     }
 
     existingSorted.valueNode.value.order = this.getOrderingKey(updated || existing);
 
-    this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedSet.sortedCollection, existingSorted);
+    this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedMap.sortedCollection, existingSorted);
   }
 
-  getSize(sortedSet: ISortedMap<K, V, O>): number {
-    return this.mapAdapter.getSize(sortedSet.map);
+  getSize(sortedMap: ISortedMap<K, V, O>): number {
+    return this.mapAdapter.getSize(sortedMap.map);
   }
 
-  getFirst(sortedSet: ISortedMap<K, V, O>): V|undefined {
-    const firstKeyWithOrder = this.sortedCollectionAdapter.getFirst(sortedSet.sortedCollection);
+  getFirst(sortedMap: ISortedMap<K, V, O>): V|undefined {
+    const firstKeyWithOrder = this.sortedCollectionAdapter.getFirst(sortedMap.sortedCollection);
     if (firstKeyWithOrder === undefined) return;
 
-    return this.mapAdapter.get(sortedSet.map, firstKeyWithOrder.key);
+    return this.mapAdapter.get(sortedMap.map, firstKeyWithOrder.key);
   }
 
-  getLast(sortedSet: ISortedMap<K, V, O>): V|undefined {
-    const lastKeyWithOrder = this.sortedCollectionAdapter.getLast(sortedSet.sortedCollection);
+  getLast(sortedMap: ISortedMap<K, V, O>): V|undefined {
+    const lastKeyWithOrder = this.sortedCollectionAdapter.getLast(sortedMap.sortedCollection);
     if (lastKeyWithOrder === undefined) return;
 
-    return this.mapAdapter.get(sortedSet.map, lastKeyWithOrder.key);
+    return this.mapAdapter.get(sortedMap.map, lastKeyWithOrder.key);
   }
 }
