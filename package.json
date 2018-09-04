@@ -27,9 +27,9 @@
     "build": "rm -rf dist/* && tsc",
     "fuzz": "jest fuzz",
     "fuzz-coverage": "jest fuzz --coverage",
-    "fuzz-debug": "node --inspect-brk ./node_modules/.bin/jest fuzz",
+    "fuzz-debug": "node --inspect-brk ./node_modules/.bin/jest fuzz --runInBand",
     "test": "jest src --watch",
-    "test-debug": "node --inspect-brk ./node_modules/.bin/jest src --watch"
+    "test-debug": "node --inspect-brk ./node_modules/.bin/jest src --runInBand --watch"
   },
   "jest": {
     "transform": {

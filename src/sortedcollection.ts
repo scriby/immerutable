@@ -106,12 +106,12 @@ export class SortedCollectionAdapter<T> {
    * @param nodeInfo The return value of of calling lookupValuePath for the value being mutated.
    */
   ensureSortedOrderOfNode(collection: IBTree<T>, nodeInfo: LookupNodeInfo<T>): void {
-    const proceedingItem = this.getPreviousValue(nodeInfo.parentPath);
+    const precedingItem = this.getPreviousValue(nodeInfo.parentPath);
     const nextItem = this.getNextValue(nodeInfo.parentPath);
     const value = nodeInfo.valueNode.value;
 
     if (
-      (proceedingItem && this.orderComparer(value, proceedingItem) < 0) ||
+      (precedingItem && this.orderComparer(value, precedingItem) < 0) ||
       (nextItem && this.orderComparer(value, nextItem) > 0)
     ) {
       // Item is out of order, remove and re-insert it to fix up the order.
@@ -258,29 +258,31 @@ export class SortedCollectionAdapter<T> {
   private splitLeafNodeLeftHeavy(node: IBTreeNode<T>) {
     const {items} = node;
 
+    // Need to leave an item in the right subtree to make sure one is available for rebalancing.
     return {
-      left: this.createBTreeNode(items.slice(0, items.length - 1)),
-      mid: items[items.length - 1],
-      right: this.createBTreeNode([]),
+      left: this.createBTreeNode(items.slice(0, items.length - 2)),
+      mid: items[items.length - 2],
+      right: this.createBTreeNode([items[items.length - 1]]),
     };
   }
 
   private splitLeafNodeRightHeavy(node: IBTreeNode<T>) {
     const {items} = node;
 
+    // Need to leave an item in the left subtree to make sure one is available for rebalancing.
     return {
-      left: this.createBTreeNode([]),
-      mid: items[0],
-      right: this.createBTreeNode(items.slice(1)),
+      left: this.createBTreeNode([items[0]]),
+      mid: items[1],
+      right: this.createBTreeNode(items.slice(2)),
     };
   }
 
   private findLeafNodeInsertionPoint(leafNode: IBTreeNode<T>, value: T) {
-    return this.binarySearch(leafNode.items, value);
+    return this.binarySearchForInsertion(leafNode.items, value);
   }
 
   private findRecursionIndex(node: IBTreeNode<T>, value: T) {
-    return this.binarySearch(node.items, value);
+    return this.binarySearchForInsertion(node.items, value);
   }
 
   private removeByPath(nodeInfo: LookupNodeInfo<T>): void {
@@ -421,51 +423,63 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  private getFurthestLeftValue(node: IBTreeNode<T>): T {
+  private getFurthestLeftValue(node: IBTreeNode<T>): T|undefined {
     if (this.isLeafNode(node)) {
-      return node.items[0].value;
+      return node.items.length ? node.items[0].value : undefined;
     } else {
       return this.getFurthestLeftValue(node.children![0]);
     }
   }
 
-  private getFurthestRightValue(node: IBTreeNode<T>): T {
+  private getFurthestRightValue(node: IBTreeNode<T>): T|undefined {
     if (this.isLeafNode(node)) {
-      return node.items[node.items.length - 1].value;
+      return node.items.length ? node.items[node.items.length - 1].value : undefined;
     } else {
       return this.getFurthestRightValue(node.children![node.children!.length - 1]);
     }
   }
 
   private getPreviousValue(parentPath: ParentPath<T>): T|undefined {
-    for (let i = parentPath.length - 1; i >= 0; i--) {
-      const nodeInfo = parentPath[i];
-      if (nodeInfo.index > 0) {
-        if (i === parentPath.length - 1) {
-          // Leaf node
-          return nodeInfo.node.items[nodeInfo.index - 1].value;
-        } else {
-          // Internal node
-          const child = nodeInfo.node.children![nodeInfo.index - 1];
-          return this.getFurthestRightValue(child);
+    const containerInfo = parentPath[parentPath.length - 1];
+
+    if (this.isLeafNode(containerInfo.node)) {
+      if (containerInfo.index > 0) {
+        return containerInfo.node.items[containerInfo.index - 1].value;
+      }
+
+      for (let i = parentPath.length - 2; i >= 0; i--) {
+        const parentInfo = parentPath[i];
+
+        const prev = parentInfo.node.items[parentInfo.index - 1];
+        if (prev) {
+          return prev.value;
         }
       }
+    } else {
+      const child = containerInfo.node.children![containerInfo.index];
+      return this.getFurthestRightValue(child);
     }
   }
 
   private getNextValue(parentPath: ParentPath<T>): T|undefined {
-    for (let i = parentPath.length - 1; i >= 0; i--) {
-      const nodeInfo = parentPath[i];
-      if (nodeInfo.index < nodeInfo.node.items.length - 1) {
-        if (i === parentPath.length - 1) {
-          // Leaf node
-          return nodeInfo.node.items[nodeInfo.index + 1].value;
-        } else {
-          // Internal node
-          const child = nodeInfo.node.children![nodeInfo.index + 1];
-          return this.getFurthestLeftValue(child);
+    const containerInfo = parentPath[parentPath.length - 1];
+
+    if (this.isLeafNode(containerInfo.node)) {
+      if (containerInfo.index < containerInfo.node.items.length - 1) {
+        return containerInfo.node.items[containerInfo.index + 1].value;
+      }
+
+      for (let i = parentPath.length - 2; i >= 0; i--) {
+        const parentInfo = parentPath[i];
+
+        const next = parentInfo.node.items[parentInfo.index];
+        if (next) {
+          return next.value;
         }
       }
+    } else {
+      const child = containerInfo.node.children![containerInfo.index + 1];
+      return this.getFurthestLeftValue(child);
     }
   }
 
@@ -474,54 +488,57 @@ export class SortedCollectionAdapter<T> {
     value: T,
     parentPath: ParentPath<T> = []
   ): LookupNodeInfo<T>|undefined {
-    const index = this.binarySearch(node.items, value);
+    const index = this.binarySearchForLookup(node.items, value);
 
     const currNode = node.items[index];
     if (currNode && this.equalityComparer(currNode.value, value)) {
       return { valueNode: currNode, parentPath: parentPath.concat({ node, index }) };
     }
 
-    for (let prev = index - 1; ; prev--) {
-      if (node.children !== undefined && node.children.length > 1) {
-        const subtreeResult = this._lookupValuePath(node.children[prev + 1], value, parentPath.concat({ node, index: prev + 1 }));
-        if (subtreeResult !== undefined) {
-          return subtreeResult;
-        }
-      }
-
-      const prevNode = node.items[prev];
-      if (prevNode && this.equalityComparer(prevNode.value, value)) {
-        return { valueNode: node.items[prev], parentPath: parentPath.concat({ node, index: prev }) };
-      }
-
-      if (!prevNode || this.orderComparer(value, prevNode.value) !== 0) {
-        break;
-      }
-    }
-
-    if (!currNode) return;
-    if (this.orderComparer(value, currNode.value) !== 0) return;
-
-    for (let next = index + 1; ; next++) {
-      if (node.children !== undefined) {
-        const subtreeResult = this._lookupValuePath(node.children[next], value, parentPath.concat({ node, index: next }));
-        if (subtreeResult !== undefined) {
-          return subtreeResult;
-        }
-      }
-
+    for (let next = index; ; next++) {
       const nextNode = node.items[next];
       if (nextNode && this.equalityComparer(nextNode.value, value)) {
         return { valueNode: node.items[next], parentPath: parentPath.concat({ node, index: next }) };
+      }
+
+      if (node.children !== undefined) {
+        const nextChild = node.children[next];
+        if (!nextChild) break;
+
+        const subtreeResult = this._lookupValuePath(nextChild, value, parentPath.concat({ node, index: next }));
+        if (subtreeResult !== undefined) {
+          return subtreeResult;
+        }
       }
 
       if (!nextNode || this.orderComparer(value, nextNode.value) !== 0) {
         break;
       }
     }
+
+    for (let prev = index - 1; ; prev--) {
+      const prevNode = node.items[prev];
+      if (prevNode && this.equalityComparer(prevNode.value, value)) {
+        return { valueNode: node.items[prev], parentPath: parentPath.concat({ node, index: prev }) };
+      }
+
+      if (node.children !== undefined) {
+        const prevChild = node.children[prev];
+        if (!prevChild) break;
+
+        const subtreeResult = this._lookupValuePath(prevChild, value, parentPath.concat({ node, index: prev }));
+        if (subtreeResult !== undefined) {
+          return subtreeResult;
+        }
+      }
+
+      if (!prevNode || this.orderComparer(value, prevNode.value) !== 0) {
+        break;
+      }
+    }
   }
 
-  private binarySearch(items: IBTreeValueNode<T>[], value: T) {
+  private binarySearchForInsertion(items: IBTreeValueNode<T>[], value: T) {
     if (items.length === 0) return 0;
 
     // Optimize increasing order insertions.
@@ -538,6 +555,12 @@ export class SortedCollectionAdapter<T> {
 
     // -2 because we already compared with the last value
     return this._binarySearch(items, value, 1, items.length - 2);
+  }
+
+  private binarySearchForLookup(items: IBTreeValueNode<T>[], value: T) {
+    if (items.length === 0) return 0;
+
+    return this._binarySearch(items, value, 0, items.length - 1);
   }
 
   private _binarySearch(items: IBTreeValueNode<T>[], value: T, low: number, high: number): number {

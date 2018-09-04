@@ -2,7 +2,6 @@ import * as rng from 'number-generator';
 import {SortedMapAdapter} from '../src/sortedmap';
 import {getSeed} from './util';
 
-//3662728131053617
 const seed = getSeed();
 
 describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
@@ -35,6 +34,7 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
     }
   });
 
+  //3662728131053617
   it('Adds and removes randomly', () => {
     const random = rng.aleaRNGFactory(seed);
     const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
@@ -64,6 +64,45 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
     }
 
     expect(adapter.getSize(map)).toEqual(Object.keys(expected).length);
+
+    for (const key in expected) {
+      expect(adapter.get(map, Number(key))).toEqual(expected[key]);
+    }
+
+    let lastOrder = -Infinity;
+    for (const {key, value} of adapter.getIterable(map)) {
+      expect(value.order).toBeGreaterThanOrEqual(lastOrder);
+      lastOrder = value.order;
+      expect(value).toEqual(expected[key]);
+    }
+  });
+
+  it('Retains consistency over many updates', () => {
+    const random = rng.aleaRNGFactory(seed);
+    const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
+      getOrderingKey: item => item.order,
+    });
+    const map = adapter.create();
+    const expected = Object.create(null);
+
+    for (let i = 0; i < 100000; i++) {
+      const value = random.uInt32();
+      const data = { data: value, order: value };
+      adapter.set(map, value, data);
+      expected[value] = data;
+    }
+
+    const expectedKeys = Object.keys(expected);
+
+    for (let i = 0; i < 100000; i++) {
+      const key = expectedKeys[Math.floor(random.uFloat32() * expectedKeys.length)];
+
+      adapter.update(map, Number(key), (item) => {
+        item.order = random.uInt32();
+      });
+    }
+
+    expect(adapter.getSize(map)).toEqual(expectedKeys.length);
 
     for (const key in expected) {
       expect(adapter.get(map, Number(key))).toEqual(expected[key]);
