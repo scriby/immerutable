@@ -67,6 +67,26 @@ export class SortedMapAdapter<K extends Key, V, O> {
     }
   }
 
+  getValuesIterable(sortedMap: ISortedMap<K, V, O>): Iterable<V> {
+    return {
+      [Symbol.iterator]: () => {
+        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection)[Symbol.iterator]();
+
+        return {
+          next: () => {
+            const next = sortedIterable.next();
+
+            if (next.done) {
+              return { value: undefined as any, done: true };
+            } else {
+              return { value: this.mapAdapter.get(sortedMap.map, next.value.key)!, done: false };
+            }
+          }
+        };
+      }
+    }
+  }
+
   set(sortedMap: ISortedMap<K, V, O>, key: K, value: V): void {
     const exists = this.mapAdapter.has(sortedMap.map, key);
     this.mapAdapter.set(sortedMap.map, key, value);
@@ -97,7 +117,7 @@ export class SortedMapAdapter<K extends Key, V, O> {
       throw new Error(`Key ${key} not found in sorted collection`);
     }
 
-    const updated = updater(existing);
+    const updated = updater(existing) as V|undefined;
 
     if (updated !== undefined) {
       this.mapAdapter.set(sortedMap.map, key, updated);

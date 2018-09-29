@@ -34,6 +34,18 @@ describe('Sorted map', () => {
     expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestObj));
   });
 
+  it('gets a value iterable', () => {
+    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    expect(adapter.getSize(sortedMap)).toEqual(20);
+    expect(Array.from(adapter.getValuesIterable(sortedMap))).toEqual(range(1, 20).map((n) => toTestObj(n).value));
+  });
+
   it('gets items', () => {
     const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
     const sortedMap = adapter.create();

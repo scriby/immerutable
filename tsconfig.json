@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "alwaysStrict": true,
     "sourceMap": false,
     "declaration": true,
     "downlevelIteration": true,
@@ -10,7 +9,9 @@
     "moduleResolution": "node",
     "noFallthroughCasesInSwitch": true,
     "noImplicitAny": true,
-    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "strict": true,
     "inlineSourceMap": true,
     "outDir": "dist"
   },

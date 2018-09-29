@@ -87,7 +87,7 @@ export class SortedCollectionAdapter<T> {
     const existing = this._lookupValuePath(collection.root, value);
     if (!existing) return;
 
-    const updated = updater(existing.valueNode.value);
+    const updated = updater(existing.valueNode.value) as T|undefined;
 
     // Replace the value if a new value was returned.
     if (updated !== undefined) {
@@ -455,6 +455,8 @@ export class SortedCollectionAdapter<T> {
           return prev.value;
         }
       }
+
+      return;
     } else {
       const child = containerInfo.node.children![containerInfo.index];
       return this.getFurthestRightValue(child);
@@ -477,6 +479,8 @@ export class SortedCollectionAdapter<T> {
           return next.value;
         }
       }
+
+      return;
     } else {
       const child = containerInfo.node.children![containerInfo.index + 1];
       return this.getFurthestLeftValue(child);
@@ -536,6 +540,8 @@ export class SortedCollectionAdapter<T> {
         break;
       }
     }
+
+    return;
   }
 
   private binarySearchForInsertion(items: IBTreeValueNode<T>[], value: T) {

@@ -167,7 +167,7 @@ export class MapAdapter<K extends Key, V> {
 
     if (depth < this.maxDepth) {
       const value = (valueNode as ISingleValueNode<K, V>).value;
-      const retVal = updater(value);
+      const retVal = updater(value) as V|undefined;
       if (retVal !== undefined) {
         (valueNode as ISingleValueNode<K, V>).value = retVal;
         return retVal;
@@ -177,7 +177,7 @@ export class MapAdapter<K extends Key, V> {
     } else {
       const existing = (valueNode as IMultiValueNode<K, V>).map[key as Key];
       const value = existing && existing.value;
-      const retVal = updater(value);
+      const retVal = updater(value) as V|undefined;
       if (retVal !== undefined) {
         (valueNode as IMultiValueNode<K, V>).map[key as Key] = this.createSingleValueNode(key, retVal);
         return retVal;
