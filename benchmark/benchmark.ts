@@ -23,7 +23,7 @@ function benchmark(label: string, cb: (iterations: number) => void) {
 }
 
 function immerutableMap() {
-  benchmark('immerutable map: setInMap', (iterations) => {
+  benchmark('immerutable map (set)', (iterations) => {
     const adapter = new MapAdapter<number, Obj>();
     let state = { map: adapter.create() };
 
@@ -40,7 +40,7 @@ function immerutableBtree() {
     orderComparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
-  benchmark('immerutable sorted collection: insert in increasing order', (iterations) => {
+  benchmark('immerutable sorted collection (insert in increasing order)', (iterations) => {
     let state = { btree: sortedCollection.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -50,7 +50,7 @@ function immerutableBtree() {
     }
   });
 
-  benchmark('immerutable sorted collection: insert in random order', (iterations) => {
+  benchmark('immerutable sorted collection (insert in random order)', (iterations) => {
     let state = { btree: sortedCollection.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -60,7 +60,7 @@ function immerutableBtree() {
     }
   });
 
-  benchmark('immerutable sorted collection: insert in decreasing order', (iterations) => {
+  benchmark('immerutable sorted collection (insert in decreasing order)', (iterations) => {
     let state = { btree: sortedCollection.create() };
 
     for (let i = iterations - 1; i >= 0; i--) {
@@ -71,12 +71,12 @@ function immerutableBtree() {
   });
 }
 
-function immerutableSortedSet() {
+function immerutableSortedMap() {
   const sortedSet = new SortedMapAdapter<string, Obj, number>({
     getOrderingKey: (obj: Obj) => obj.order!,
   });
 
-  benchmark('immerutable sorted set: insert in increasing order', (iterations) => {
+  benchmark('immerutable sorted map (insert in increasing order)', (iterations) => {
     let state = { sortedSet: sortedSet.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -86,7 +86,7 @@ function immerutableSortedSet() {
     }
   });
 
-  benchmark('immerutable sorted set: insert in random order', (iterations) => {
+  benchmark('immerutable sorted map (insert in random order)', (iterations) => {
     let state = { sortedSet: sortedSet.create() };
 
     for (let i = 0; i < iterations; i++) {
@@ -96,7 +96,7 @@ function immerutableSortedSet() {
     }
   });
 
-  benchmark('immerutable sorted set: insert in decreasing order', (iterations) => {
+  benchmark('immerutable sorted map (insert in decreasing order)', (iterations) => {
     let state = { sortedSet: sortedSet.create() };
 
     for (let i = iterations - 1; i >= 0; i--) {
@@ -108,7 +108,7 @@ function immerutableSortedSet() {
 }
 
 function immerArray() {
-  benchmark('immer array: insert in increasing order', (iterations) => {
+  benchmark('immer array (insert in increasing order)', (iterations) => {
     let state = { array: [] as Obj[] };
 
     for (let i = 0; i < iterations; i++) {
@@ -118,7 +118,7 @@ function immerArray() {
     }
   });
 
-  benchmark('immer array: insert in random order', (iterations) => {
+  benchmark('immer array (insert in random order)', (iterations) => {
     let state = { array: [] as Obj[] };
 
     for (let i = 0; i < iterations; i++) {
@@ -128,7 +128,7 @@ function immerArray() {
     }
   });
 
-  benchmark('immer array: insert in decreasing order', (iterations) => {
+  benchmark('immer array (insert in decreasing order)', (iterations) => {
     let state = { array: [] as Obj[] };
 
     for (let i = iterations - 1; i >= 0 ; i--) {
@@ -140,7 +140,7 @@ function immerArray() {
 }
 
 function immerMap() {
-  benchmark('immer map: set', (iterations) => {
+  benchmark('immer map (set)', (iterations) => {
     let state = { map: Object.create(null) };
 
     for (let i = 0; i < iterations; i++) {
@@ -165,4 +165,4 @@ immerutableBtree();
 
 divider();
 
-immerutableSortedSet();
+immerutableSortedMap();

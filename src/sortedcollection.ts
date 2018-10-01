@@ -4,8 +4,9 @@ export interface IBTreeNode<T> {
   children?: Array<IBTreeNode<T>>;
 }
 
-export interface IBTree<T> {
+export interface ISortedCollection<T> {
   root: IBTreeNode<T>;
+  size: number;
 }
 
 export interface IBTreeValueNode<T> {
@@ -73,17 +74,22 @@ export class SortedCollectionAdapter<T> {
    * It should not be modified or read from directly. All interaction with this collection should
    * happen through this adapter class.
    */
-  create(): IBTree<T> {
+  create(): ISortedCollection<T> {
     return this.createBTreeRootNode();
   }
 
   /** Inserts an item into the collection in sorted order. */
-  insert(collection: IBTree<T>, value: T): void {
+  insert(collection: ISortedCollection<T>, value: T): void {
+    collection.size++;
+
     this.insertInBTreeNode(collection.root, collection.root, undefined, value);
   }
 
+  getSize(collection: ISortedCollection<T>) {
+    return collection.size;
+  }
 
-  update(collection: IBTree<T>, value: T, updater: (item: T) => T|void|undefined): void {
+  update(collection: ISortedCollection<T>, value: T, updater: (item: T) => T|void|undefined): void {
     const existing = this._lookupValuePath(collection.root, value);
     if (!existing) return;
 
@@ -105,7 +111,7 @@ export class SortedCollectionAdapter<T> {
    *
    * @param nodeInfo The return value of of calling lookupValuePath for the value being mutated.
    */
-  ensureSortedOrderOfNode(collection: IBTree<T>, nodeInfo: LookupNodeInfo<T>): void {
+  ensureSortedOrderOfNode(collection: ISortedCollection<T>, nodeInfo: LookupNodeInfo<T>): void {
     const precedingItem = this.getPreviousValue(nodeInfo.parentPath);
     const nextItem = this.getNextValue(nodeInfo.parentPath);
     const value = nodeInfo.valueNode.value;
@@ -116,34 +122,38 @@ export class SortedCollectionAdapter<T> {
     ) {
       // Item is out of order, remove and re-insert it to fix up the order.
       this.removeByPath(nodeInfo);
+      collection.size--;
+
       this.insert(collection, value);
     }
   }
 
-  lookupValuePath(collection: IBTree<T>, value: T): LookupNodeInfo<T>|undefined {
+  lookupValuePath(collection: ISortedCollection<T>, value: T): LookupNodeInfo<T>|undefined {
     return this._lookupValuePath(collection.root, value);
   }
 
-  getFirst(collection: IBTree<T>): T|undefined {
+  getFirst(collection: ISortedCollection<T>): T|undefined {
     if (collection.root.items.length === 0) return;
 
     return this.getFurthestLeftValue(collection.root);
   }
 
-  getLast(collection: IBTree<T>): T|undefined {
+  getLast(collection: ISortedCollection<T>): T|undefined {
     if (collection.root.items.length === 0) return;
 
     return this.getFurthestRightValue(collection.root);
   }
 
-  remove(collection: IBTree<T>, value: T): void {
+  remove(collection: ISortedCollection<T>, value: T): void {
     const existingInfo = this._lookupValuePath(collection.root, value);
     if (existingInfo === undefined) return;
+
+    collection.size--;
 
     return this.removeByPath(existingInfo);
   }
 
-  getIterable(collection: IBTree<T>): Iterable<T> {
+  getIterable(collection: ISortedCollection<T>): Iterable<T> {
     type Frame = {
       index: number,
       onChildren: boolean,
@@ -597,9 +607,10 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  private createBTreeRootNode(): IBTree<T> {
+  private createBTreeRootNode(): ISortedCollection<T> {
     return {
       root: this.createBTreeNode([], undefined, true),
+      size: 0,
     };
   }
 

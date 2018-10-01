@@ -215,10 +215,13 @@ describe('B-tree', () => {
       adapter.insert(btree, i);
     }
 
+    expect(adapter.getSize(btree)).toBe(20);
+
     for (let i = 1; i <= 20; i++) {
       adapter.remove(btree, i);
 
       expect(Array.from(adapter.getIterable(btree))).toEqual(i === 20 ? [] : range(i + 1, 20));
+      expect(adapter.getSize(btree)).toBe(20 - i);
     }
   });
 

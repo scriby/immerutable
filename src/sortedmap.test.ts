@@ -119,6 +119,22 @@ describe('Sorted map', () => {
     );
   });
 
+  it('reorders when using set to update an item', () => {
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    adapter.set(sortedMap, 'data 10', { data: '10', order: 25});
+
+    expect(adapter.getSize(sortedMap)).toEqual(20);
+    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(
+      range(1, 9).concat(range(11, 20)).map(toTestObj).concat({ key: 'data 10', value: { data: '10', order: 25 }})
+    );
+  });
+
   it('does nothing when updating a non-existent item', () => {
     const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();

@@ -1,5 +1,5 @@
 import {IMap, MapAdapter} from './map';
-import {Comparer, IBTree, SortedCollectionAdapter} from './sortedcollection';
+import {Comparer, ISortedCollection, SortedCollectionAdapter} from './sortedcollection';
 
 export type Key = string | number;
 
@@ -10,7 +10,7 @@ export interface IKeyWithOrder<K, O> {
 
 export interface ISortedMap<K, V, O=any> {
   map: IMap<K, V>,
-  sortedCollection: IBTree<IKeyWithOrder<K, O>>,
+  sortedCollection: ISortedCollection<IKeyWithOrder<K, O>>,
 }
 
 export type GetOrderingKey<V, O> = (value: V) => O;
@@ -89,10 +89,12 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
 
   set(sortedMap: ISortedMap<K, V, O>, key: K, value: V): void {
     const exists = this.mapAdapter.has(sortedMap.map, key);
-    this.mapAdapter.set(sortedMap.map, key, value);
 
     if (!exists) {
       this.sortedCollectionAdapter.insert(sortedMap.sortedCollection, { key, order: this.getOrderingKey(value) });
+      this.mapAdapter.set(sortedMap.map, key, value);
+    } else {
+      this.update(sortedMap, key, () => value);
     }
   }
 
@@ -129,7 +131,9 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
   }
 
   getSize(sortedMap: ISortedMap<K, V, O>): number {
-    return this.mapAdapter.getSize(sortedMap.map);
+    // Sorted collection is used to retrieve the size to support the use case where the map may be shared between
+    // multiple sorted collections.
+    return this.sortedCollectionAdapter.getSize(sortedMap.sortedCollection);
   }
 
   getFirst(sortedMap: ISortedMap<K, V, O>): V|undefined {
