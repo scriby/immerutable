@@ -11,7 +11,7 @@ const toTestObj = (i: number) => ({ key: `data ${i}`, value: { data: i.toString(
 
 describe('Sorted map', () => {
   it('adds 20 items in order', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -23,7 +23,7 @@ describe('Sorted map', () => {
   });
 
   it('adds 20 items in reverse order', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 20; i > 0; i--) {
@@ -35,7 +35,7 @@ describe('Sorted map', () => {
   });
 
   it('gets a value iterable', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -47,7 +47,7 @@ describe('Sorted map', () => {
   });
 
   it('gets items', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -60,7 +60,7 @@ describe('Sorted map', () => {
   });
 
   it('returns undefined when getting a non-existent item', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -71,7 +71,7 @@ describe('Sorted map', () => {
   });
 
   it('reorders when updating item 10 to the end', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -87,7 +87,7 @@ describe('Sorted map', () => {
   });
 
   it('reorders when updating item 15 to the beginning', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -103,7 +103,7 @@ describe('Sorted map', () => {
   });
 
   it('reorders when updating item 1 to the middle', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -120,7 +120,7 @@ describe('Sorted map', () => {
   });
 
   it('does nothing when updating a non-existent item', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -132,7 +132,7 @@ describe('Sorted map', () => {
   });
 
   it('uses a custom ordering function', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({
+    const adapter = new SortedMapAdapter<string, TestObject>({
       getOrderingKey,
       orderComparer: (a, b) => b - a,
     });
@@ -146,7 +146,7 @@ describe('Sorted map', () => {
   });
 
   it('removes an item', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -160,7 +160,7 @@ describe('Sorted map', () => {
   });
 
   it('gets the first item', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {
@@ -171,7 +171,7 @@ describe('Sorted map', () => {
   });
 
   it('gets the last item', () => {
-    const adapter = new SortedMapAdapter<string, TestObject, number>({ getOrderingKey });
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
     const sortedMap = adapter.create();
 
     for (let i = 1; i <= 20; i++) {

@@ -8,14 +8,14 @@ export interface IKeyWithOrder<K, O> {
   order: O;
 }
 
-export interface ISortedMap<K, V, O> {
+export interface ISortedMap<K, V, O=any> {
   map: IMap<K, V>,
   sortedCollection: IBTree<IKeyWithOrder<K, O>>,
 }
 
 export type GetOrderingKey<V, O> = (value: V) => O;
 
-export class SortedMapAdapter<K extends Key, V, O> {
+export class SortedMapAdapter<K extends Key, V, O=any> {
   private getOrderingKey: GetOrderingKey<V, O>;
   private mapAdapter = new MapAdapter<K, V>();
   private sortedCollectionAdapter: SortedCollectionAdapter<IKeyWithOrder<K, O>>;
