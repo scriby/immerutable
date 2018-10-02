@@ -6,23 +6,9 @@ to arrays and large objects (maps). In order for Immer to retain immutability of
 the arrays & objects that are modified (or contain something which is modified). Creating these copies becomes
 expensive as they grow in size.
 
-This library is inspired by ImmutableJS and provides data structures which use structural sharing which allow Immer
+This library is inspired by ImmutableJS and provides data structures which use structural sharing that allow Immer
 to make copies of subsets of large objects when data changes. For large arrays & objects using Immerutable will provide
 a 30-40x+ speedup over basic arrays and objects with Immer (the larger the object, the greater the speedup).
-
-## Data structures
-
-### Map
-
-Similar to using an object as a Map in javascript, this data structure allows an object to be indexed by a key.
-As of now, the key must either be a number or string. Get/has/set/remove operations are all constant time, and iteration
-is linear time. The underlying implementation for this data structure is a trie.
-
-### Sorted Collection
-
-This collection is similar to an array where all the items are kept in sorted order. However, it differs from an array
-in that items cannot be looked up by index, but they can be iterated in order. Insertion and removal are log(n)
-operations, and iteration is linear. The underlying implementation of this data structure is a B-tree.
 
 ## Benchmarks
 
@@ -43,3 +29,189 @@ All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operation
 |immerutable sorted map (insert in increasing order)|166ms|
 |immerutable sorted map (insert in random order)|345ms|
 |immerutable sorted map (insert in decreasing order)|305ms|
+
+## Data structures
+
+All data structures are implemented as plain javascript objects such that they are fully serializable if stored in
+a redux or ngrx store. Because the data structures are plain objects, the methods for dealing with the data structure
+are not on the objects themselves. Rather, an "adapter" class is used which accepts the data structure as an argument
+to each method.
+
+### Map
+
+Similar to using an object as a Map in javascript, this data structure allows an object to be indexed by a key.
+As of now, the key must either be a number or string. Get/has/set/remove operations are all constant time, and iteration
+is linear time. The underlying implementation for this data structure is a trie.
+
+```typescript
+import {MapAdapter} from 'immerutable';
+
+interface TestObject {
+  data: string;
+}
+
+// Create an adapter to work with the map.
+const adapter = new MapAdapter<number, TestObject>();
+
+// Create an empty map. Store this result of this in the redux or ngrx store.
+const map = adapter.create();
+
+// Set an item in the map.
+adapter.set(map, 1, { data: 'test' });
+
+// Get an item out of the map by key.
+const item = adapter.get(map, 1);
+
+// Check if the map has an item.
+const hasItem = adapter.has(map, 1);
+
+// Update an item in the map if it already exists.
+adapter.update(map, 1, (item) => {
+  item.data = 'updated'; // The item may be mutated directly, or a new item may be returned.
+});
+
+// Get the number of items in the map.
+const size = adapter.getSize(map);
+
+// Iterate through the map items (order is not guaranteed).
+// With iterator downleveling (setting in tsconfig) or ES6:
+for (const {key, value} of adapter.getIterable(map)) {
+  console.log(key, value);
+}
+
+// Without iterator downleveling:
+const iterable = adapter.getIterable(map);
+const iterator = iterable[Symbol.iterator](); // May need Symbol.iterator polyfill
+let next: TestObject;
+
+while (!(next = iterator.next()).done) {
+  const {key, value} = next.value;
+  console.log(key, value);
+}
+
+// Convert to an array. May require polyfill.
+Array.from(adapter.getIterable(map));
+
+// Remove an item from the map by key.
+adapter.remove(map, 1);
+```
+
+### Sorted Collection
+
+This collection is similar to an array where all the items are kept in sorted order. However, it differs from an array
+in that items cannot be looked up by index, but they can be iterated in order. Insertion and removal are log(n)
+operations, and iteration is linear. The underlying implementation of this data structure is a B-tree.
+
+```typescript
+import {SortedCollectionAdapter} from 'immerutable';
+
+interface TestObject {
+  id: string;
+  data: string;
+  order: number;
+}
+
+// Create an adapter to work with the sorted collection.
+const adapter = new SortedCollectionAdapter<TestObject>({
+  orderComparer: (a, b) => a.order - b.order,
+  equalityComparer: (a, b) => a.id === b.id,
+});
+
+// Create an empty sorted collection. Store the result of this in the redux or ngrx store.
+const sortedCollection = adapter.create();
+
+const item = { id: 'a', data: 'test', order: 1 };
+
+// Add an item to the sorted collection. Duplicates are allowed.
+adapter.insert(sortedCollection, item);
+
+// Update an item in the sorted collection. Updates to ordering properties MUST take 
+// place from within the update method for the collection to stay in sorted order.
+const updated = adapter.update(sortedCollection, item, (existing) => {
+  existing.order = 2; // The item may be mutated, or a new item may be returned.
+});
+
+// Get the number of items in the collection.
+const size = adapter.getSize(sortedCollection);
+
+// Get the first item in sorted order in the collection.
+const first = adapter.getFirst(sortedCollection);
+
+// Get the last item in sorted order in the collection.
+const last = adapter.getLast(sortedCollection);
+
+// Iterate through the items in the collection (with iterator downleveling or ES6). 
+// See map example for ES5 iterator.
+for (const item of adapter.getIterable(sortedCollection)) {
+  console.log(item);
+}
+
+// Convert to an array (May require polyfill).
+Array.from(updater.getIterable(sortedCollection));
+
+// Remove an item from the sorted collection. Properties which are used as part 
+// of the orderComparer and equalityComparer must be included (other properties are optional).
+adapter.remove(sortedCollection, updated);
+```
+
+### Sorted Map
+
+A sorted map combines the map and sorted collection data structures to provide a map which can be iterated in sorted
+order. This data structure is useful for efficiently keeping a list of items in order as items are added and removed
+for the purpose of rendering the list in a UI.
+
+```typescript
+import {SortedMapAdapter} from 'immerutable';
+
+interface TestObject {
+  id: string;
+  data: string;
+  order: number;
+}
+
+const adapter = new SortedMapAdapter<string, TestObject>({
+  getOrderingKey: (item) => item.order
+});
+
+const sortedMap = adapter.create();
+
+// Set an item in the sorted map.
+adapter.set(sortedMap, 1, { data: 'test' });
+
+// Get an item out of the sorted map by key.
+const item = adapter.get(sortedMap, 1);
+
+// Check if the sorted map has an item.
+const hasItem = adapter.has(sortedMap, 1);
+
+// Update an item in the sorted map if it already exists.
+adapter.update(sortedMap, 1, (item) => {
+  item.data = 'updated'; // The item may be mutated directly, or a new item may be returned.
+});
+
+// Get the number of items in the sorted map.
+const size = adapter.getSize(sortedMap);
+
+// Get the first item in sorted order in the sorted map.
+const first = adapter.getFirst(sortedMap);
+
+// Get the last item in sorted order in the sorted map.
+const last = adapter.getLast(sortedMap);
+
+// Iterate through the map items in sorted order.
+// With iterator downleveling (setting in tsconfig) or ES6:
+for (const {key, value} of adapter.getIterable(sortedMap)) {
+  console.log(key, value);
+}
+
+// Iterate just through the values in sorted order.
+for (const value of adapter.getValuesIterable(sortedMap)) {
+  console.log(value);
+}
+
+// Convert values to an array. May require polyfill.
+Array.from(adapter.getValuesIterable(sortedMap));
+
+// Remove an item from the sorted map by key.
+adapter.remove(sortedMap, 1);
+```
