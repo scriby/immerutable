@@ -106,7 +106,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     this.mapAdapter.remove(sortedMap.map, key);
   }
 
-  update(sortedMap: ISortedMap<K, V, O>, key: K, updater: (item: V) => V|void): void {
+  update(sortedMap: ISortedMap<K, V, O>, key: K, updater: (item: V) => V|void): void|V {
     const existing = this.mapAdapter.get(sortedMap.map, key);
     if (!existing) return;
 
@@ -125,9 +125,12 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
       this.mapAdapter.set(sortedMap.map, key, updated);
     }
 
-    existingSorted.valueNode.value.order = this.getOrderingKey(updated || existing);
+    const updatedOrExisting = updated || existing;
+    existingSorted.valueNode.value.order = this.getOrderingKey(updatedOrExisting);
 
     this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedMap.sortedCollection, existingSorted);
+
+    return updatedOrExisting;
   }
 
   getSize(sortedMap: ISortedMap<K, V, O>): number {

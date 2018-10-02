@@ -89,7 +89,7 @@ export class SortedCollectionAdapter<T> {
     return collection.size;
   }
 
-  update(collection: ISortedCollection<T>, value: T, updater: (item: T) => T|void|undefined): void {
+  update(collection: ISortedCollection<T>, value: T, updater: (item: T) => T|void|undefined): void|T {
     const existing = this._lookupValuePath(collection.root, value);
     if (!existing) return;
 
@@ -103,6 +103,8 @@ export class SortedCollectionAdapter<T> {
     }
 
     this.ensureSortedOrderOfNode(collection, existing);
+
+    return updated;
   }
 
   /**
