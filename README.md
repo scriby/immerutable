@@ -26,18 +26,20 @@ operations, and iteration is linear. The underlying implementation of this data 
 
 ## Benchmarks
 
-All benchmarks are the time to perform 4,000 operations. For instance, 4,000 individual insertions into a map or array.
+All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operations. For instance, 4,000 individual insertions into a map or array.
 
-immer map (set): 1900.405ms
-immerutable map (set): 48.084ms
--------------------------------------------
-immer array (insert in increasing order): 168.088ms
-immer array (insert in random order): 4017.524ms
-immer array (insert in decreasing order): 7790.873ms
-immerutable sorted collection (insert in increasing order): 107.597ms
-immerutable sorted collection (insert in random order): 267.842ms
-immerutable sorted collection (insert in decreasing order): 235.885ms
--------------------------------------------
-immerutable sorted map (insert in increasing order): 166.177ms
-immerutable sorted map (insert in random order): 345.034ms
-immerutable sorted map (insert in decreasing order): 305.022ms
+|benchmark|time|
+|---------|----|
+|immer map (set)|1900ms|
+|immerutable map (set)|48ms|
+|||
+|immer array (insert in increasing order)|168ms|
+|immer array (insert in random order)|4018ms|
+|immer array (insert in decreasing order)|7791ms|
+|immerutable sorted collection (insert in increasing order)|108ms|
+|immerutable sorted collection (insert in random order)|268ms|
+|immerutable sorted collection (insert in decreasing order)|236ms|
+|||
+|immerutable sorted map (insert in increasing order)|166ms|
+|immerutable sorted map (insert in random order)|345ms|
+|immerutable sorted map (insert in decreasing order)|305ms|
