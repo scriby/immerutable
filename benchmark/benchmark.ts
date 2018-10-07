@@ -4,6 +4,7 @@ require('source-map-support').install();
 import produce, {setAutoFreeze, setUseProxies} from 'immer';
 import {MapAdapter} from '../src/map';
 import {SortedMapAdapter} from '../src/sortedmap';
+import {LruCacheAdapter} from '../src/lrucache';
 
 setUseProxies(true);
 setAutoFreeze(false);
@@ -151,6 +152,20 @@ function immerMap() {
   });
 }
 
+function lruCache() {
+  benchmark(`lru cache (50% capacity)`, (iterations) => {
+    const lruCache = new LruCacheAdapter(iterations / 2);
+
+    let state = { lru: lruCache.create() };
+
+    for (let i = 0; i < iterations; i++) {
+      state = produce(state, (draft: typeof state) => {
+        lruCache.set(draft.lru, i, { data: i });
+      });
+    }
+  });
+}
+
 function divider() {
   console.log('-------------------------------------------');
 }
@@ -166,3 +181,7 @@ immerutableBtree();
 divider();
 
 immerutableSortedMap();
+
+divider();
+
+lruCache();
