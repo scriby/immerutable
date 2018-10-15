@@ -43,6 +43,83 @@ a redux or ngrx store. Because the data structures are plain objects, the method
 are not on the objects themselves. Rather, an "adapter" class is used which accepts the data structure as an argument
 to each method.
 
+### Usage with Immer
+
+Example reducer using an Immerutable Sorted Map:
+
+```typescript
+import {produce} from 'immer';
+import {ISortedMap, SortedMapAdapter} from 'immerutable';
+import {createFeatureSelector, createSelector} from 'ngrx';
+
+export interface Book {
+  id: string;
+  title: string;
+  author: string;
+}
+
+enum BookActionTypes {
+  ADD_BOOK = 'ADD_BOOK',
+  UPDATE_BOOK = 'UPDATE_BOOK',
+  REMOVE_BOOK = 'REMOVE_BOOK'
+}
+
+export class AddBook {
+  readonly type = BookActionTypes.ADD_BOOK;
+  constructor(readonly payload: { book: Book }) {}
+}
+
+export class UpdateBook {
+  readonly type = BookActionTypes.UPDATE_BOOK;
+  constructor(readonly payload: { book: Book }) {}
+}
+
+export class RemoveBook {
+  readonly type = BookActionTypes.REMOVE_BOOK;
+  constructor(readonly payload: { bookId: string }) {}
+}
+
+const BookActions = AddBook | UpdateBook | RemoveBook;
+
+const bookAdapter = new SortedMapAdapter<string, Book>({
+  getOrderingKey: (book) => book.title
+});
+
+export interface BooksState {
+  books: ISortedMap<string, Book>;
+}
+
+const initialState: BooksState = {
+  books: bookAdapter.create()
+};
+
+export function bookReducer = produce((draft: BooksState, action: BookActions) => {
+  switch (action.type) {
+    case BookActionTypes.ADD_BOOK:
+      bookAdapter.set(draft.books, action.payload.book.id, action.payload.book);
+    break;
+    case BookActionTypes.UPDATE_BOOK:
+      bookAdapter.update(draft.books, action.payload.book.id, (book: Book) => {
+        return action.payload.book; // Or, mutate the book object directly.
+      });
+      break;
+    case BookActionTypes.REMOVE_BOOK:
+      bookAdapter.remove(draft.books, action.payload.bookId);
+      break;
+    default:
+      return initialState;
+  }
+});
+
+
+// Example selectors
+export const booksFeature = createFeatureSelector('books');
+
+export const getBooksIterable = createSelector(booksFeature, (booksState: BooksState) => {
+  return booksAdapter.getValuesIterable(booksState.books);
+});
+```
+
 ### Map
 
 Similar to using an object as a Map in javascript, this data structure allows an object to be indexed by a key.
