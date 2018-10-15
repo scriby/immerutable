@@ -126,9 +126,12 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     }
 
     const updatedOrExisting = updated || existing;
-    existingSorted.valueNode.value.order = this.getOrderingKey(updatedOrExisting);
+    const updatedOrderingKey = this.getOrderingKey(updatedOrExisting);
 
-    this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedMap.sortedCollection, existingSorted);
+    if (existingSorted.valueNode.value.order !== updatedOrderingKey) {
+      existingSorted.valueNode.value.order = updatedOrderingKey;
+      this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedMap.sortedCollection, existingSorted);
+    }
 
     return updatedOrExisting;
   }
