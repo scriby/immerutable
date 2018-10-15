@@ -97,7 +97,7 @@ export function bookReducer = produce((draft: BooksState, action: BookActions) =
   switch (action.type) {
     case BookActionTypes.ADD_BOOK:
       bookAdapter.set(draft.books, action.payload.book.id, action.payload.book);
-    break;
+      break;
     case BookActionTypes.UPDATE_BOOK:
       bookAdapter.update(draft.books, action.payload.book.id, (book: Book) => {
         return action.payload.book; // Or, mutate the book object directly.
