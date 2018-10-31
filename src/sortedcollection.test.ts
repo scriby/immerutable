@@ -428,4 +428,26 @@ describe('B-tree', () => {
 
     expect(adapter.getLast(btree)).toBeUndefined();
   });
+
+  test('gets backwards iterables from 0 to 50', () => {
+    const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 0; i < 50; i++) {
+      adapter.insert(btree, i);
+
+      expect(Array.from(adapter.getIterable(btree, 'backward')).reverse()).toEqual(range(0, i));
+    }
+  });
+
+  test('gets backwards iterables from 50 to 0', () => {
+    const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 50; i >= 0; i--) {
+      adapter.insert(btree, i);
+
+      expect(Array.from(adapter.getIterable(btree, 'backward')).reverse()).toEqual(range(i, 50));
+    }
+  });
 });

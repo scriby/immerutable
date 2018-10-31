@@ -155,7 +155,15 @@ export class SortedCollectionAdapter<T> {
     return this.removeByPath(existingInfo);
   }
 
-  getIterable(collection: ISortedCollection<T>): Iterable<T> {
+  getIterable(collection: ISortedCollection<T>, direction: 'forward'|'backward' = 'forward'): Iterable<T> {
+    if (direction === 'forward') {
+      return this.getForwardIterable(collection);
+    } else {
+      return this.getBackwardIterable(collection);
+    }
+  }
+
+  private getForwardIterable(collection: ISortedCollection<T>): Iterable<T> {
     type Frame = {
       index: number,
       onChildren: boolean,
@@ -195,6 +203,75 @@ export class SortedCollectionAdapter<T> {
         return {
           next: () => {
             const value = traverseToFurthestLeft(stack[stack.length - 1]);
+
+            if (value !== undefined) {
+              return {
+                value: value as T,
+                done: false,
+              };
+            } else {
+              return {
+                value: undefined as any as T,
+                done: true,
+              };
+            }
+          }
+        };
+      }
+    };
+  }
+
+  private getBackwardIterable(collection: ISortedCollection<T>): Iterable<T> {
+    type Frame = {
+      index: number,
+      onChildren: boolean,
+      items: IBTreeValueNode<T>[],
+      children?: IBTreeNode<T>[]
+    };
+    const stack: Frame[] = [{
+      onChildren: true,
+      index: collection.root.children ? collection.root.children.length - 1 : collection.root.items.length,
+      items: collection.root.items,
+      children: collection.root.children
+    }];
+
+    function traverseToFurthestRight(frame: Frame): T|undefined {
+      if (frame === undefined) return undefined;
+
+      if (
+        frame.index > 0 ||
+        (frame.children !== undefined && frame.onChildren && frame.index >= 0)
+      ) {
+        if (frame.children !== undefined && frame.onChildren) {
+          const child = frame.children[frame.index];
+          const nextFrame = {
+            items: child.items,
+            onChildren: true,
+            children: child.children,
+            index: child.children ? child.children.length - 1 : child.items.length
+          };
+          stack.push(nextFrame);
+
+          frame.onChildren = false;
+          return traverseToFurthestRight(nextFrame);
+        } else {
+          const item = frame.items[--frame.index];
+
+          frame.onChildren = true;
+          return item.value;
+        }
+      } else {
+        stack.pop();
+
+        return traverseToFurthestRight(stack[stack.length - 1]);
+      }
+    }
+
+    return {
+      [Symbol.iterator]: () => {
+        return {
+          next: () => {
+            const value = traverseToFurthestRight(stack[stack.length - 1]);
 
             if (value !== undefined) {
               return {
