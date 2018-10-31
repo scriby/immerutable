@@ -14,7 +14,12 @@ export class LruCacheAdapter<K extends Key, V> {
     getOrderingKey: (item) => item.order
   });
 
-  constructor(private maxSize: number) {}
+  /**
+   * Create a new LRU Cache adapter.
+   * @param suggestedSize The max suggested # of entries for the LRU Cache to store. Up to 10% more than the provided
+   *                      number may be stored.
+   */
+  constructor(private suggestedSize: number) {}
 
   create(): ILruCache<K, V> {
     return {
@@ -26,10 +31,16 @@ export class LruCacheAdapter<K extends Key, V> {
   set(lru: ILruCache<K, V>, key: K, value: V): void {
     this.sortedMapAdapter.set(lru, key, { value, order: this.getNextOrder(lru) });
 
-    if (this.getSize(lru) > this.maxSize) {
-      const oldestKey = this.sortedMapAdapter.getIterable(lru)[Symbol.iterator]().next().value.key;
+    // With Immer, it's more efficient to do multiple removals at once, so we store up to 10% extra entries
+    // and then remove them all at once.
+    if (this.getSize(lru) > this.suggestedSize * 1.1) {
+      const iterable = this.sortedMapAdapter.getIterable(lru)[ Symbol.iterator ]();
 
-      this.sortedMapAdapter.remove(lru, oldestKey);
+      do {
+        const oldestKey = iterable.next().value.key;
+
+        this.sortedMapAdapter.remove(lru, oldestKey);
+      } while (this.getSize(lru) > this.suggestedSize);
     }
   }
 

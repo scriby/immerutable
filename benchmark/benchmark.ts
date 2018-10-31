@@ -164,6 +164,18 @@ function lruCache() {
       });
     }
   });
+
+  benchmark(`lru cache (10% capacity)`, (iterations) => {
+    const lruCache = new LruCacheAdapter(iterations / 10);
+
+    let state = { lru: lruCache.create() };
+
+    for (let i = 0; i < iterations; i++) {
+      state = produce(state, (draft: typeof state) => {
+        lruCache.set(draft.lru, i, { data: i });
+      });
+    }
+  });
 }
 
 function divider() {

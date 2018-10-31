@@ -35,7 +35,7 @@ describe('LRU Cache', () => {
     expect(Array.from(adapter.getValuesIterable(lru))).toEqual(['c', 'd', 'a', 'e']);
   });
 
-  test('treats updates items as more recent', () => {
+  test('treats updated items as more recent', () => {
     const adapter = new LruCacheAdapter<string, string>(4);
     const lru = adapter.create();
 
@@ -48,6 +48,20 @@ describe('LRU Cache', () => {
 
     expect(adapter.getSize(lru)).toBe(4);
     expect(Array.from(adapter.getValuesIterable(lru))).toEqual(['c', 'f', 'd', 'e']);
+  });
+
+  test('removes items', () => {
+    const adapter = new LruCacheAdapter<string, string>(4);
+    const lru = adapter.create();
+
+    adapter.set(lru, 'a', 'a');
+    adapter.set(lru, 'b', 'b');
+    adapter.set(lru, 'c', 'c');
+    expect(adapter.getSize(lru)).toBe(3);
+
+    adapter.remove(lru, 'c');
+    expect(adapter.getSize(lru)).toBe(2);
+    expect(Array.from(adapter.getValuesIterable(lru))).toEqual(['a', 'b']);
   });
 
 });
