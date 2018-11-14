@@ -1,7 +1,7 @@
 {
   "name": "immerutable",
   "description": "Scalable collections for Immer, inspired by ImmutableJS.",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "devDependencies": {
     "@types/jest": "23.3.2",
     "@types/node": "8.10.14",
