@@ -29,12 +29,15 @@ All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operation
 |immerutable sorted map (insert in increasing order)|166ms|
 |immerutable sorted map (insert in random order)|345ms|
 |immerutable sorted map (insert in decreasing order)|305ms|
+|||
+|immerutable lru cache set (max items = 2000)|252ms|
+|immerutable lru cache set (max items = 400)|369ms|
 
 ### When should I use this?
 
 * Dealing with large data structures, especially ones containing more than 10,000 items
 * If you have a use case dealing with performing many small modifications on a list or map with thousands of items
-* The data structures such as SortedMap are a good fit for a use case you have
+* The data structures such as SortedMap or LruCache are a good fit for a use case you have
 
 ## Data structures
 
