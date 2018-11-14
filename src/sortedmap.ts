@@ -47,10 +47,10 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     return this.mapAdapter.get(sortedMap.map, key);
   }
 
-  getIterable(sortedMap: ISortedMap<K, V, O>): Iterable<{ key: K, value: V }> {
+  getIterable(sortedMap: ISortedMap<K, V, O>, direction: 'forward'|'backward' = 'forward'): Iterable<{ key: K, value: V }> {
     return {
       [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection)[Symbol.iterator]();
+        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection, direction)[Symbol.iterator]();
 
         return {
           next: () => {
@@ -67,10 +67,10 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     }
   }
 
-  getValuesIterable(sortedMap: ISortedMap<K, V, O>): Iterable<V> {
+  getValuesIterable(sortedMap: ISortedMap<K, V, O>, direction: 'forward'|'backward' = 'forward'): Iterable<V> {
     return {
       [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection)[Symbol.iterator]();
+        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection, direction)[Symbol.iterator]();
 
         return {
           next: () => {

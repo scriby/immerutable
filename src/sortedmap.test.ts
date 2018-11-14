@@ -196,4 +196,26 @@ describe('Sorted map', () => {
 
     expect(adapter.getLast(sortedMap)).toEqual({ data: '20', order: 20 });
   });
+
+  it('gets a backwards iterable', () => {
+      const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+      const sortedMap = adapter.create();
+
+      for (let i = 1; i <= 20; i++) {
+        adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+      }
+
+      expect(Array.from(adapter.getIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(toTestObj));
+  });
+
+  it('gets a backwards values iterable', () => {
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    expect(Array.from(adapter.getValuesIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(x => toTestObj(x).value));
+  });
 });
