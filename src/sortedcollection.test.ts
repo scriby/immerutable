@@ -1,5 +1,4 @@
 import {SortedCollectionAdapter} from './sortedcollection';
-import Test = jest.Test;
 
 interface TestObject {
   key: string;
