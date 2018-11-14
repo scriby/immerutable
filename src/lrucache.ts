@@ -72,7 +72,7 @@ export class LruCacheAdapter<K extends Key, V> {
     }
   }
 
-  getValuesIterable(lru: ILruCache<K, V>): Iterable<{ key: K, value: V }> {
+  getValuesIterable(lru: ILruCache<K, V>): Iterable<V> {
     return {
       [Symbol.iterator]: () => {
         const sortedIterable = this.sortedMapAdapter.getIterable(lru)[Symbol.iterator]();
