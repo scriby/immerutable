@@ -10,6 +10,10 @@ This library is inspired by ImmutableJS and provides data structures which use s
 to make copies of subsets of large objects when data changes. For large arrays & objects using Immerutable will provide
 a 30-40x+ speedup over basic arrays and objects with Immer (the larger the object, the greater the speedup).
 
+## How it works
+
+![](docs/immerutable.gif)
+
 ## Benchmarks
 
 All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operations. For instance, 4,000 individual insertions into a map or array.
