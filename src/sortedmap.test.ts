@@ -198,14 +198,14 @@ describe('Sorted map', () => {
   });
 
   it('gets a backwards iterable', () => {
-      const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
-      const sortedMap = adapter.create();
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
 
-      for (let i = 1; i <= 20; i++) {
-        adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
-      }
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+    }
 
-      expect(Array.from(adapter.getIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(toTestObj));
   });
 
   it('gets a backwards values iterable', () => {
@@ -218,4 +218,20 @@ describe('Sorted map', () => {
 
     expect(Array.from(adapter.getValuesIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(x => toTestObj(x).value));
   });
+
+  it('indicates when it has an item', () => {
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    adapter.set(sortedMap, 'key', { data: 'data', order: 1 });
+
+    expect(adapter.has(sortedMap, 'key')).toBe(true);
+  });
+
+  it('indicates when it does not have an item', () => {
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    expect(adapter.has(sortedMap, 'key')).toBe(false);
+  })
 });

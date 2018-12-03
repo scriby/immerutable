@@ -47,6 +47,10 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     return this.mapAdapter.get(sortedMap.map, key);
   }
 
+  has(sortedMap: ISortedMap<K ,V, O>, key: K): boolean {
+    return this.mapAdapter.has(sortedMap.map, key);
+  }
+
   getIterable(sortedMap: ISortedMap<K, V, O>, direction: 'forward'|'backward' = 'forward'): Iterable<{ key: K, value: V }> {
     return {
       [Symbol.iterator]: () => {

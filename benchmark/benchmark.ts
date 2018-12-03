@@ -37,75 +37,131 @@ function immerutableMap() {
 }
 
 function immerutableBtree() {
-  const sortedCollection = new SortedCollectionAdapter<Obj>({
+  const sortedCollectionAdapter = new SortedCollectionAdapter<Obj>({
     orderComparer: (a: Obj, b: Obj) => a.order! - b.order!,
   });
 
   benchmark('immerutable sorted collection (insert in increasing order)', (iterations) => {
-    let state = { btree: sortedCollection.create() };
+    let state = { btree: sortedCollectionAdapter.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedCollection.insert(draft.btree, { data: i.toString(), order: i });
+        sortedCollectionAdapter.insert(draft.btree, { data: i.toString(), order: i });
       });
     }
   });
 
   benchmark('immerutable sorted collection (insert in random order)', (iterations) => {
-    let state = { btree: sortedCollection.create() };
+    let state = { btree: sortedCollectionAdapter.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedCollection.insert(draft.btree, { data: i.toString(), order: Math.random() });
+        sortedCollectionAdapter.insert(draft.btree, { data: i.toString(), order: Math.random() });
       });
     }
   });
 
   benchmark('immerutable sorted collection (insert in decreasing order)', (iterations) => {
-    let state = { btree: sortedCollection.create() };
+    let state = { btree: sortedCollectionAdapter.create() };
 
     for (let i = iterations - 1; i >= 0; i--) {
       state = produce(state, (draft: typeof state) => {
-        sortedCollection.insert(draft.btree, { data: i.toString(), order: i });
+        sortedCollectionAdapter.insert(draft.btree, { data: i.toString(), order: i });
       });
     }
   });
+
+  benchmark(`immerutable sorted collection iteration (inside immer) (size: ${ITERATIONS})`, (() => {
+    let state = { btree: sortedCollectionAdapter.create() };
+    for (let i = 0; i < ITERATIONS; i++) {
+      sortedCollectionAdapter.insert(state.btree, {data: i.toString(), order: i });
+    }
+
+    return () => {
+      state = produce(state, (draft: typeof state) => {
+        for (const item of sortedCollectionAdapter.getIterable(draft.btree)) {
+
+        }
+      });
+    };
+  })());
+
+  benchmark(`immerutable sorted collection iteration (outside immer) (size: ${ITERATIONS})`, (() => {
+    let state = { btree: sortedCollectionAdapter.create() };
+    for (let i = 0; i < ITERATIONS; i++) {
+      sortedCollectionAdapter.insert(state.btree, {data: i.toString(), order: i });
+    }
+
+    return () => {
+      for (const item of sortedCollectionAdapter.getIterable(state.btree)) {
+
+      }
+    };
+  })());
 }
 
 function immerutableSortedMap() {
-  const sortedSet = new SortedMapAdapter<string, Obj, number>({
+  const sortedMapAdapter = new SortedMapAdapter<string, Obj, number>({
     getOrderingKey: (obj: Obj) => obj.order!,
   });
 
   benchmark('immerutable sorted map (insert in increasing order)', (iterations) => {
-    let state = { sortedSet: sortedSet.create() };
+    let state = { sortedMap: sortedMapAdapter.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedSet.set(draft.sortedSet, i.toString(), { data: i.toString(), order: i });
+        sortedMapAdapter.set(draft.sortedMap, i.toString(), { data: i.toString(), order: i });
       });
     }
   });
 
   benchmark('immerutable sorted map (insert in random order)', (iterations) => {
-    let state = { sortedSet: sortedSet.create() };
+    let state = { sortedMap: sortedMapAdapter.create() };
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedSet.set(draft.sortedSet, i.toString(), { data: i.toString(), order: Math.random() });
+        sortedMapAdapter.set(draft.sortedMap, i.toString(), { data: i.toString(), order: Math.random() });
       });
     }
   });
 
   benchmark('immerutable sorted map (insert in decreasing order)', (iterations) => {
-    let state = { sortedSet: sortedSet.create() };
+    let state = { sortedMap: sortedMapAdapter.create() };
 
     for (let i = iterations - 1; i >= 0; i--) {
       state = produce(state, (draft: typeof state) => {
-        sortedSet.set(draft.sortedSet, i.toString(), { data: i.toString(), order: i });
+        sortedMapAdapter.set(draft.sortedMap, i.toString(), { data: i.toString(), order: i });
       });
     }
   });
+
+  benchmark(`immerutable sorted map iteration (inside immer) (size: ${ITERATIONS})`, (() => {
+    let state = { sortedMap: sortedMapAdapter.create() };
+    for (let i = 0; i < ITERATIONS; i++) {
+      sortedMapAdapter.set(state.sortedMap, i.toString(), {data: i.toString(), order: i });
+    }
+
+    return () => {
+      state = produce(state, (draft: typeof state) => {
+        for (const item of sortedMapAdapter.getIterable(draft.sortedMap)) {
+
+        }
+      });
+    };
+  })());
+
+  benchmark(`immerutable sorted map iteration (outside immer) (size: ${ITERATIONS})`, (() => {
+    let state = { sortedMap: sortedMapAdapter.create() };
+    for (let i = 0; i < ITERATIONS; i++) {
+      sortedMapAdapter.set(state.sortedMap, i.toString(), {data: i.toString(), order: i });
+    }
+
+    return () => {
+      for (const item of sortedMapAdapter.getIterable(state.sortedMap)) {
+
+      }
+    };
+  })());
 }
 
 function immerArray() {
@@ -137,6 +193,21 @@ function immerArray() {
         draft.array.unshift({ id: i, data: i.toString() });
       });
     }
+  });
+
+  benchmark('immer array iteration (inside immer) (size = 4000)', () => {
+    let state = { array: [] as Obj[] };
+    for (let i = 0; i < ITERATIONS; i++) {
+      state.array.push({ id: i, data: i.toString() });
+    }
+
+    return () => {
+      state = produce(state, (draft: typeof state) => {
+        for (const item of draft.array) {
+
+        }
+      });
+    };
   });
 }
 
