@@ -37,7 +37,7 @@ export class LruCacheAdapter<K extends Key, V> {
       const iterable = this.sortedMapAdapter.getIterable(lru)[ Symbol.iterator ]();
 
       do {
-        const oldestKey = iterable.next().value.key;
+        const oldestKey = iterable.next().value[0];
 
         this.sortedMapAdapter.remove(lru, oldestKey);
       } while (this.getSize(lru) > this.suggestedSize);
@@ -52,7 +52,7 @@ export class LruCacheAdapter<K extends Key, V> {
     return existing && existing.value;
   }
 
-  getIterable(lru: ILruCache<K, V>): Iterable<{ key: K, value: V }> {
+  getIterable(lru: ILruCache<K, V>): Iterable<[K, V]> {
     return {
       [Symbol.iterator]: () => {
         const sortedIterable = this.sortedMapAdapter.getIterable(lru)[Symbol.iterator]();
@@ -64,7 +64,7 @@ export class LruCacheAdapter<K extends Key, V> {
             if (next.done) {
               return { value: undefined as any, done: true };
             } else {
-              return { value: { key: next.value.key, value: next.value.value.value }, done: false };
+              return { value: [next.value[0], next.value[1].value], done: false };
             }
           }
         };
@@ -84,7 +84,7 @@ export class LruCacheAdapter<K extends Key, V> {
             if (next.done) {
               return { value: undefined as any, done: true };
             } else {
-              return { value: next.value.value.value, done: false };
+              return { value: next.value[1].value, done: false };
             }
           }
         };

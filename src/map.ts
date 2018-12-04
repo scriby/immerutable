@@ -225,7 +225,7 @@ export class MapAdapter<K extends Key, V> {
    * }
    * ```
    */
-  getIterable(map: IMap<K, V>): Iterable<ISingleValueNode<K, V>> {
+  getIterable(map: IMap<K, V>): Iterable<[K, V]> {
     type Frame = {
       index: number,
       content: ITrieNode<K, V> | ISingleValueNode<K, V> | IMultiValueNode<K, V>,
@@ -273,12 +273,12 @@ export class MapAdapter<K extends Key, V> {
 
             if (value !== undefined) {
               return {
-                value: value as ISingleValueNode<K, V>,
+                value: [value.key, value.value],
                 done: false,
               };
             } else {
               return {
-                value: undefined as any as ISingleValueNode<K, V>,
+                value: undefined as any,
                 done: true,
               };
             }

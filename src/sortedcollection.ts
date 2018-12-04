@@ -155,7 +155,7 @@ export class SortedCollectionAdapter<T> {
     return this.removeByPath(existingInfo);
   }
 
-  getIterable(collection: ISortedCollection<T>, direction: 'forward'|'backward' = 'forward'): Iterable<T> {
+  getIterable(collection: ISortedCollection<T>, direction: 'forward'|'backward' = 'forward'): IterableIterator<T> {
     if (direction === 'forward') {
       return this.getForwardIterable(collection);
     } else {
@@ -163,7 +163,7 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  private getForwardIterable(collection: ISortedCollection<T>): Iterable<T> {
+  private getForwardIterable(collection: ISortedCollection<T>): IterableIterator<T> {
     type Frame = {
       index: number,
       onChildren: boolean,
@@ -198,30 +198,36 @@ export class SortedCollectionAdapter<T> {
       }
     }
 
-    return {
-      [Symbol.iterator]: () => {
-        return {
-          next: () => {
-            const value = traverseToFurthestLeft(stack[stack.length - 1]);
+    const next = () => {
+      const value = traverseToFurthestLeft(stack[stack.length - 1]);
 
-            if (value !== undefined) {
-              return {
-                value: value as T,
-                done: false,
-              };
-            } else {
-              return {
-                value: undefined as any as T,
-                done: true,
-              };
-            }
-          }
+      if (value !== undefined) {
+        return {
+          value: value as T,
+          done: false,
+        };
+      } else {
+        return {
+          value: undefined as any as T,
+          done: true,
         };
       }
     };
+
+    const iterator = {
+      [Symbol.iterator]: () => {
+        return {
+          [Symbol.iterator]: () => iterator,
+          next
+        };
+      },
+      next
+    };
+
+    return iterator;
   }
 
-  private getBackwardIterable(collection: ISortedCollection<T>): Iterable<T> {
+  private getBackwardIterable(collection: ISortedCollection<T>): IterableIterator<T> {
     type Frame = {
       index: number,
       onChildren: boolean,
@@ -267,27 +273,33 @@ export class SortedCollectionAdapter<T> {
       }
     }
 
-    return {
-      [Symbol.iterator]: () => {
-        return {
-          next: () => {
-            const value = traverseToFurthestRight(stack[stack.length - 1]);
+    const next = () => {
+      const value = traverseToFurthestRight(stack[stack.length - 1]);
 
-            if (value !== undefined) {
-              return {
-                value: value as T,
-                done: false,
-              };
-            } else {
-              return {
-                value: undefined as any as T,
-                done: true,
-              };
-            }
-          }
+      if (value !== undefined) {
+        return {
+          value: value as T,
+          done: false,
+        };
+      } else {
+        return {
+          value: undefined as any as T,
+          done: true,
         };
       }
     };
+
+    const iterator = {
+      [Symbol.iterator]: () => {
+        return {
+          [Symbol.iterator]: () => iterator,
+          next
+        };
+      },
+      next
+    };
+
+    return iterator
   }
 
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|undefined, parentIndex: number|undefined, value: T): void {

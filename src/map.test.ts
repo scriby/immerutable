@@ -228,7 +228,7 @@ describe('map', () => {
     // Get coverage on "if (child === undefined) {" in map.ts.
     adapter.remove(map, 1);
 
-    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(2, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
+    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a[1].x - b[1].x)).toEqual(range(2, 20).map(i => ([ i, { x: i, value: 'test value' }])));
   });
 
   test('iterates through maxDepth map entries', () => {
@@ -244,7 +244,7 @@ describe('map', () => {
       adapter.set(map, i, { ...testValue, x: i });
     }
 
-    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a.value.x - b.value.x)).toEqual(range(1, 20).map(i => ({ key: i, value: { x: i, value: 'test value' }})));
+    expect(Array.from(adapter.getIterable(map)).sort((a, b) => a[1].x - b[1].x)).toEqual(range(1, 20).map(i => ([ i, { x: i, value: 'test value' }])));
   });
 
   test('determines a key exists using has', () => {

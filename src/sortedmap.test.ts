@@ -7,7 +7,7 @@ interface TestObject {
 
 const getOrderingKey = (obj: TestObject) => obj.order;
 const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
-const toTestObj = (i: number) => ({ key: `data ${i}`, value: { data: i.toString(), order: i }});
+const toTestArr = (i: number) => ([ `data ${i}`, { data: i.toString(), order: i }]);
 
 describe('Sorted map', () => {
   it('adds 20 items in order', () => {
@@ -19,7 +19,7 @@ describe('Sorted map', () => {
     }
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
-    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestArr));
   });
 
   it('adds 20 items in reverse order', () => {
@@ -31,7 +31,7 @@ describe('Sorted map', () => {
     }
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
-    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestArr));
   });
 
   it('gets a value iterable', () => {
@@ -43,7 +43,7 @@ describe('Sorted map', () => {
     }
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
-    expect(Array.from(adapter.getValuesIterable(sortedMap))).toEqual(range(1, 20).map((n) => toTestObj(n).value));
+    expect(Array.from(adapter.getValuesIterable(sortedMap))).toEqual(range(1, 20).map((n) => toTestArr(n)[1]));
   });
 
   it('gets items', () => {
@@ -82,7 +82,7 @@ describe('Sorted map', () => {
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
     expect(Array.from(adapter.getIterable(sortedMap))).toEqual(
-      range(1, 9).concat(range(11, 20)).map(toTestObj).concat({ key: 'data 10', value: { data: '10', order: 25 }})
+      range(1, 9).concat(range(11, 20)).map(toTestArr).concat([['data 10', { data: '10', order: 25 }]])
     );
   });
 
@@ -98,7 +98,7 @@ describe('Sorted map', () => {
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
     expect(Array.from(adapter.getIterable(sortedMap))).toEqual(
-      [{key: 'data 15', value: { data: '15', order: -1 }}].concat(range(1, 14).concat(range(16, 20)).map(toTestObj))
+      [['data 15', { data: '15', order: -1 }]].concat(range(1, 14).concat(range(16, 20)).map(toTestArr))
     );
   });
 
@@ -114,8 +114,8 @@ describe('Sorted map', () => {
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
     expect(Array.from(adapter.getIterable(sortedMap))).toEqual(
-      range(2, 10).map(toTestObj)
-        .concat({key: 'data 1', value: { data: '1', order: 10.5 }}, range(11, 20).map(toTestObj))
+      range(2, 10).map(toTestArr)
+        .concat([['data 1', { data: '1', order: 10.5 }]], range(11, 20).map(toTestArr))
     );
   });
 
@@ -131,7 +131,7 @@ describe('Sorted map', () => {
 
     expect(adapter.getSize(sortedMap)).toEqual(20);
     expect(Array.from(adapter.getIterable(sortedMap))).toEqual(
-      range(1, 9).concat(range(11, 20)).map(toTestObj).concat({ key: 'data 10', value: { data: '10', order: 25 }})
+      range(1, 9).concat(range(11, 20)).map(toTestArr).concat([['data 10', { data: '10', order: 25 }]])
     );
   });
 
@@ -144,7 +144,7 @@ describe('Sorted map', () => {
     }
 
     adapter.update(sortedMap, 'does not exist', item => { item.data = 'test'; });
-    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).map(toTestArr));
   });
 
   it('uses a custom ordering function', () => {
@@ -158,7 +158,7 @@ describe('Sorted map', () => {
       adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
     }
 
-    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).reverse().map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 20).reverse().map(toTestArr));
   });
 
   it('removes an item', () => {
@@ -172,7 +172,7 @@ describe('Sorted map', () => {
     adapter.remove(sortedMap, 'data 20');
 
     expect(adapter.getSize(sortedMap)).toEqual(19);
-    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 19).map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap))).toEqual(range(1, 19).map(toTestArr));
   });
 
   it('gets the first item', () => {
@@ -205,7 +205,7 @@ describe('Sorted map', () => {
       adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
     }
 
-    expect(Array.from(adapter.getIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(toTestObj));
+    expect(Array.from(adapter.getIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(toTestArr));
   });
 
   it('gets a backwards values iterable', () => {
@@ -216,7 +216,7 @@ describe('Sorted map', () => {
       adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
     }
 
-    expect(Array.from(adapter.getValuesIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(x => toTestObj(x).value));
+    expect(Array.from(adapter.getValuesIterable(sortedMap, 'backward'))).toEqual(range(1, 20).reverse().map(x => toTestArr(x)[1]));
   });
 
   it('indicates when it has an item', () => {

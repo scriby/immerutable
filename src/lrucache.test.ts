@@ -13,10 +13,10 @@ describe('LRU Cache', () => {
 
     expect(adapter.getSize(lru)).toBe(4);
     expect(Array.from(adapter.getIterable(lru))).toEqual([
-      {key: 'b', value: 'b'},
-      {key: 'c', value: 'c'},
-      {key: 'd', value: 'd'},
-      {key: 'e', value: 'e'},
+      ['b', 'b'],
+      ['c', 'c'],
+      ['d', 'd'],
+      ['e', 'e'],
     ]);
   });
 
