@@ -11,3 +11,18 @@ export function shallowCopy(value: any) {
     return value;
   }
 }
+
+export function iterableToIterableIterator<T>(iterable: Iterable<T>): IterableIterator<T> {
+  let iterator: Iterator<T>;
+
+  const iterableIterator = {
+    [Symbol.iterator]: () => iterableIterator,
+    next: () => {
+      if (!iterator) iterator = iterable[Symbol.iterator]();
+
+      return iterator.next();
+    }
+  };
+
+  return iterableIterator;
+}

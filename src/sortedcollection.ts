@@ -1,3 +1,5 @@
+import {iterableToIterableIterator} from './util';
+
 export interface IBTreeNode<T> {
   isRoot?: boolean;
   items: IBTreeValueNode<T>[];
@@ -198,33 +200,27 @@ export class SortedCollectionAdapter<T> {
       }
     }
 
-    const next = () => {
-      const value = traverseToFurthestLeft(stack[stack.length - 1]);
-
-      if (value !== undefined) {
-        return {
-          value: value as T,
-          done: false,
-        };
-      } else {
-        return {
-          value: undefined as any as T,
-          done: true,
-        };
-      }
-    };
-
-    const iterator = {
+    return iterableToIterableIterator({
       [Symbol.iterator]: () => {
         return {
-          [Symbol.iterator]: () => iterator,
-          next
-        };
-      },
-      next
-    };
+          next: () => {
+            const value = traverseToFurthestLeft(stack[stack.length - 1]);
 
-    return iterator;
+            if (value !== undefined) {
+              return {
+                value: value as T,
+                done: false,
+              };
+            } else {
+              return {
+                value: undefined as any as T,
+                done: true,
+              };
+            }
+          }
+        };
+      }
+    });
   }
 
   private getBackwardIterable(collection: ISortedCollection<T>): IterableIterator<T> {
@@ -273,33 +269,27 @@ export class SortedCollectionAdapter<T> {
       }
     }
 
-    const next = () => {
-      const value = traverseToFurthestRight(stack[stack.length - 1]);
-
-      if (value !== undefined) {
-        return {
-          value: value as T,
-          done: false,
-        };
-      } else {
-        return {
-          value: undefined as any as T,
-          done: true,
-        };
-      }
-    };
-
-    const iterator = {
+    return iterableToIterableIterator({
       [Symbol.iterator]: () => {
         return {
-          [Symbol.iterator]: () => iterator,
-          next
-        };
-      },
-      next
-    };
+          next: () => {
+            const value = traverseToFurthestRight(stack[stack.length - 1]);
 
-    return iterator
+            if (value !== undefined) {
+              return {
+                value: value as T,
+                done: false,
+              };
+            } else {
+              return {
+                value: undefined as any as T,
+                done: true,
+              };
+            }
+          }
+        };
+      }
+    });
   }
 
   private insertInBTreeNode(node: IBTreeNode<T>, parent: IBTreeNode<T>|undefined, parentIndex: number|undefined, value: T): void {
