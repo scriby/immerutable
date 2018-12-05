@@ -1,5 +1,5 @@
 import {hash} from './hash';
-import {iterableToIterableIterator} from './util';
+import {iterableToIterableIterator, mapIterable} from './util';
 
 export interface IMap<K, V> {
   root: ITrieNode<K, V>,
@@ -287,6 +287,14 @@ export class MapAdapter<K extends Key, V> {
         };
       }
     });
+  }
+
+  getValuesIterable(map: IMap<K, V>): IterableIterator<V> {
+    return iterableToIterableIterator(mapIterable(this.getIterable(map), (entry) => entry[1]));
+  }
+
+  getKeysIterable(map: IMap<K, V>): IterableIterator<K> {
+    return iterableToIterableIterator(mapIterable(this.getIterable(map), (entry) => entry[0]));
   }
 
   private createTrieNode(): ITrieNode<K, V> {

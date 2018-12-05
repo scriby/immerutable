@@ -1,7 +1,7 @@
 import {LruCacheAdapter} from './lrucache';
 
 describe('LRU Cache', () => {
-  test('expires old items', () => {
+  it('expires old items', () => {
     const adapter = new LruCacheAdapter<string, string>(4);
     const lru = adapter.create();
 
@@ -20,7 +20,7 @@ describe('LRU Cache', () => {
     ]);
   });
 
-  test('treats gotten items as more recent', () => {
+  it('treats gotten items as more recent', () => {
     const adapter = new LruCacheAdapter<string, string>(4);
     const lru = adapter.create();
 
@@ -35,7 +35,7 @@ describe('LRU Cache', () => {
     expect(Array.from(adapter.getValuesIterable(lru))).toEqual(['c', 'd', 'a', 'e']);
   });
 
-  test('treats updated items as more recent', () => {
+  it('treats updated items as more recent', () => {
     const adapter = new LruCacheAdapter<string, string>(4);
     const lru = adapter.create();
 
@@ -50,7 +50,7 @@ describe('LRU Cache', () => {
     expect(Array.from(adapter.getValuesIterable(lru))).toEqual(['c', 'f', 'd', 'e']);
   });
 
-  test('removes items', () => {
+  it('removes items', () => {
     const adapter = new LruCacheAdapter<string, string>(4);
     const lru = adapter.create();
 
@@ -64,4 +64,14 @@ describe('LRU Cache', () => {
     expect(Array.from(adapter.getValuesIterable(lru))).toEqual(['a', 'b']);
   });
 
+  it('gets keys', () => {
+    const adapter = new LruCacheAdapter<string, string>(4);
+    const lru = adapter.create();
+
+    adapter.set(lru, 'a', 'a');
+    adapter.set(lru, 'b', 'b');
+    adapter.set(lru, 'c', 'c');
+
+    expect(Array.from(adapter.getKeysIterable(lru))).toEqual(['a', 'b', 'c']);
+  });
 });

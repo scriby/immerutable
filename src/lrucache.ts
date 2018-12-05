@@ -1,5 +1,5 @@
 import {ISortedMap, Key, SortedMapAdapter} from './sortedmap';
-import {iterableToIterableIterator} from './util';
+import {iterableToIterableIterator, mapIterable} from './util';
 
 export interface ILruCache<K, V> extends ISortedMap<K, LruWrapper<V>> {
   nextOrder: number;
@@ -74,23 +74,11 @@ export class LruCacheAdapter<K extends Key, V> {
   }
 
   getValuesIterable(lru: ILruCache<K, V>): IterableIterator<V> {
-    return iterableToIterableIterator({
-      [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedMapAdapter.getIterable(lru)[Symbol.iterator]();
+    return iterableToIterableIterator(mapIterable(this.getIterable(lru), (entry) => entry[1]));
+  }
 
-        return {
-          next: () => {
-            const next = sortedIterable.next();
-
-            if (next.done) {
-              return { value: undefined as any, done: true };
-            } else {
-              return { value: next.value[1].value, done: false };
-            }
-          }
-        };
-      }
-    });
+  getKeysIterable(lru: ILruCache<K, V>): IterableIterator<K> {
+    return iterableToIterableIterator(mapIterable(this.getIterable(lru), (entry) => entry[0]));
   }
 
   update(lru: ILruCache<K, V>, key: K, updater: (item: V) => V|void): V|undefined {

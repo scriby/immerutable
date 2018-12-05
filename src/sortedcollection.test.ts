@@ -10,14 +10,14 @@ describe('B-tree', () => {
   const objOrderComparer = (a: TestObject, b: TestObject) => a.order - b.order;
   const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
 
-  test('creates a sorted list', () => {
+  it('creates a sorted list', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
     expect(btree.root.items.length).toBe(0);
   });
 
-  test('inserts 1 through 10 in order', () => {
+  it('inserts 1 through 10 in order', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -28,7 +28,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 10));
   });
 
-  test('inserts 1 through 10 in reverse order', () => {
+  it('inserts 1 through 10 in reverse order', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -39,7 +39,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 10));
   });
 
-  test('re-orders input', () => {
+  it('re-orders input', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -61,7 +61,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(0, 13));
   });
 
-  test('gets iterators (in-order insertion)', () => {
+  it('gets iterators (in-order insertion)', () => {
     for (let maxItemsPerLevel = 4; maxItemsPerLevel <= 16; maxItemsPerLevel += 2) {
       const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel });
 
@@ -78,7 +78,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes items (right rotation)', () => {
+  it('removes items (right rotation)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -92,7 +92,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual([1].concat(range(4, 10)));
   });
 
-  test('removes items (left rotation)', () => {
+  it('removes items (left rotation)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -105,7 +105,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 8).concat(10));
   });
 
-  test('removes items (combine leaves, middle -> left, parent is root)', () => {
+  it('removes items (combine leaves, middle -> left, parent is root)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -120,7 +120,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 4).concat(range(8, 10)));
   });
 
-  test('removes items (combine leaves, left -> middle, parent is root)', () => {
+  it('removes items (combine leaves, left -> middle, parent is root)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -135,7 +135,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(4, 10));
   });
 
-  test('removes items (replace root)', () => {
+  it('removes items (replace root)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -149,7 +149,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(3, 6));
   });
 
-  test('removes items (internal node - take from left subtree)', () => {
+  it('removes items (internal node - take from left subtree)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -162,7 +162,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 7).concat(range(9, 20)));
   });
 
-  test('removes items (internal node - take from left subtree with rebalance)', () => {
+  it('removes items (internal node - take from left subtree with rebalance)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -176,7 +176,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(range(1, 6).concat(range(9, 20)));
   });
 
-  test('removes items descending from 20', () => {
+  it('removes items descending from 20', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -191,7 +191,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes items descending from 20 (same ordering key)', () => {
+  it('removes items descending from 20 (same ordering key)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer: () => 0, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -206,7 +206,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes items ascending to 20', () => {
+  it('removes items ascending to 20', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -224,7 +224,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes items ascending to 20 (same ordering key)', () => {
+  it('removes items ascending to 20 (same ordering key)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer: () => 0, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -239,7 +239,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes items from middle', () => {
+  it('removes items from middle', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
     const removalOrder = [10, 11, 9, 12, 8, 13, 7, 14, 6, 15, 5, 16, 4, 17, 3, 18, 2, 19, 1, 20];
@@ -255,7 +255,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes items in a specific order', () => {
+  it('removes items in a specific order', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
     // This order covers some cases not covered by other tests.
@@ -276,7 +276,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes one instance of duplicates', () => {
+  it('removes one instance of duplicates', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -294,7 +294,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('removes a non-existent item (middle)', () => {
+  it('removes a non-existent item (middle)', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer });
     const btree = adapter.create();
 
@@ -310,7 +310,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual([1, 2, 4, 5]);
   });
 
-  test('removes a non-existent item', () => {
+  it('removes a non-existent item', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer });
     const btree = adapter.create();
 
@@ -319,7 +319,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual([]);
   });
 
-  test('removes an item with many items sharing the same order key', () => {
+  it('removes an item with many items sharing the same order key', () => {
     const adapter = new SortedCollectionAdapter({
       orderComparer: objOrderComparer,
       equalityComparer: (a, b) => a.key === b.key,
@@ -341,7 +341,7 @@ describe('B-tree', () => {
     expect(Array.from(adapter.getIterable(btree))).toEqual(items.filter(item => item.key !== '4'));
   });
 
-  test('reorders an item', () => {
+  it('reorders an item', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer: objOrderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
     const items = [];
@@ -358,7 +358,7 @@ describe('B-tree', () => {
     )
   });
 
-  test('reorders the first item', () => {
+  it('reorders the first item', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer: objOrderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
     const items = [];
@@ -375,7 +375,7 @@ describe('B-tree', () => {
     )
   });
 
-  test('reorders the last item', () => {
+  it('reorders the last item', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer: objOrderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
     const items = [];
@@ -392,7 +392,7 @@ describe('B-tree', () => {
     )
   });
 
-  test('gets the first item', () => {
+  it('gets the first item', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -403,7 +403,7 @@ describe('B-tree', () => {
     expect(adapter.getFirst(btree)).toEqual(1);
   });
 
-  test('gets the last item', () => {
+  it('gets the last item', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -414,21 +414,21 @@ describe('B-tree', () => {
     expect(adapter.getLast(btree)).toEqual(10);
   });
 
-  test('gets undefined for the first item of an empty collection', () => {
+  it('gets undefined for the first item of an empty collection', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
     expect(adapter.getFirst(btree)).toBeUndefined();
   });
 
-  test('gets undefined for the last item of an empty collection', () => {
+  it('gets undefined for the last item of an empty collection', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
     expect(adapter.getLast(btree)).toBeUndefined();
   });
 
-  test('gets backwards iterables from 0 to 50', () => {
+  it('gets backwards iterables from 0 to 50', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
@@ -439,7 +439,7 @@ describe('B-tree', () => {
     }
   });
 
-  test('gets backwards iterables from 50 to 0', () => {
+  it('gets backwards iterables from 50 to 0', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 

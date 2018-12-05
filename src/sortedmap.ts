@@ -53,63 +53,21 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
   }
 
   getIterable(sortedMap: ISortedMap<K, V, O>, direction: 'forward'|'backward' = 'forward'): IterableIterator<[K, V]> {
-    return iterableToIterableIterator({
-      [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection, direction)[Symbol.iterator]();
-
-        return {
-          next: () => {
-            const next = sortedIterable.next();
-
-            if (next.done) {
-              return { value: undefined as any, done: true };
-            } else {
-              return { value: [ next.value.key, this.mapAdapter.get(sortedMap.map, next.value.key)! ], done: false };
-            }
-          }
-        };
-      }
-    });
+    return iterableToIterableIterator(mapIterable(this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection, direction), (item) => {
+      return [ item.key, this.mapAdapter.get(sortedMap.map, item.key)! ] as [K, V];
+    }));
   }
 
   getValuesIterable(sortedMap: ISortedMap<K, V, O>, direction: 'forward'|'backward' = 'forward'): IterableIterator<V> {
-    return iterableToIterableIterator({
-      [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection, direction)[Symbol.iterator]();
-
-        return {
-          next: () => {
-            const next = sortedIterable.next();
-
-            if (next.done) {
-              return { value: undefined as any, done: true };
-            } else {
-              return { value: this.mapAdapter.get(sortedMap.map, next.value.key)!, done: false };
-            }
-          }
-        };
-      }
-    });
+    return iterableToIterableIterator(mapIterable(this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection, direction), (item) => {
+      return this.mapAdapter.get(sortedMap.map, item.key)!;
+    }));
   }
 
-  getKeys(sortedMap: ISortedMap<K, V, O>): IterableIterator<K> {
-    return iterableToIterableIterator({
-      [Symbol.iterator]: () => {
-        const sortedIterable = this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection)[Symbol.iterator]();
-
-        return {
-          next: () => {
-            const next = sortedIterable.next();
-
-            if (next.done) {
-              return { value: undefined as any, done: true };
-            } else {
-              return { value: next.value.key, done: false };
-            }
-          }
-        }
-      }
-    });
+  getKeysIterable(sortedMap: ISortedMap<K, V, O>): IterableIterator<K> {
+    return iterableToIterableIterator(mapIterable(this.sortedCollectionAdapter.getIterable(sortedMap.sortedCollection), (item) => {
+      return item.key;
+    }));
   }
 
   set(sortedMap: ISortedMap<K, V, O>, key: K, value: V): void {
@@ -185,7 +143,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     const map: ReadonlyMap<K, V> = {
       [Symbol.iterator]: () => this.getIterable(sortedMap)[Symbol.iterator](),
       entries: () => this.getIterable(sortedMap),
-      keys: () => this.getKeys(sortedMap),
+      keys: () => this.getKeysIterable(sortedMap),
       values: () => this.getValuesIterable(sortedMap),
       forEach: (callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: any) => {
         const iterator = this.getIterable(sortedMap);
@@ -205,12 +163,12 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
 
   keysAsReadonlySet(sortedMap: ISortedMap<K, V, O>): ReadonlySet<K> {
     const set: ReadonlySet<K> = {
-      [Symbol.iterator]: () => this.getKeys(sortedMap)[Symbol.iterator](),
-      entries: () => mapIterable(this.getKeys(sortedMap), (key) => [key, key]) as IterableIterator<[K, K]>,
-      keys: () => this.getKeys(sortedMap),
-      values: () => this.getKeys(sortedMap),
+      [Symbol.iterator]: () => this.getKeysIterable(sortedMap)[Symbol.iterator](),
+      entries: () => mapIterable(this.getKeysIterable(sortedMap), (key) => [key, key]) as IterableIterator<[K, K]>,
+      keys: () => this.getKeysIterable(sortedMap),
+      values: () => this.getKeysIterable(sortedMap),
       forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
-        const iterator = this.getKeys(sortedMap);
+        const iterator = this.getKeysIterable(sortedMap);
         while (true) {
           const next = iterator.next();
           if (next.done) break;
