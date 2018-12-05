@@ -26,3 +26,23 @@ export function iterableToIterableIterator<T>(iterable: Iterable<T>): IterableIt
 
   return iterableIterator;
 }
+
+export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) => U): Iterable<U> {
+  return {
+    [Symbol.iterator]() {
+      const iterator = iterable[Symbol.iterator]();
+
+      return {
+        next() {
+          const next = iterator.next();
+
+          if (next.done) {
+            return { value: next.value !== undefined ? transform(next.value) : undefined as any as U, done: true };
+          } else {
+            return { value: transform(next.value), done: false };
+          }
+        }
+      };
+    }
+  };
+}

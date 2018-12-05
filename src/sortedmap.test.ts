@@ -7,7 +7,7 @@ interface TestObject {
 
 const getOrderingKey = (obj: TestObject) => obj.order;
 const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
-const toTestArr = (i: number) => ([ `data ${i}`, { data: i.toString(), order: i }]);
+const toTestArr = (i: number) => [ `data ${i}`, { data: i.toString(), order: i }];
 
 describe('Sorted map', () => {
   it('adds 20 items in order', () => {
@@ -233,5 +233,113 @@ describe('Sorted map', () => {
     const sortedMap = adapter.create();
 
     expect(adapter.has(sortedMap, 'key')).toBe(false);
-  })
+  });
+
+  describe('asReadonlyMap', () => {
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    const map = adapter.asReadonlyMap(sortedMap);
+
+    it('iterates', () => {
+      expect(Array.from(map)).toEqual(range(1, 20).map((n) => toTestArr(n)));
+    });
+
+    it('gets entries', () => {
+      expect(Array.from(map.entries())).toEqual(range(1, 20).map((n) => toTestArr(n)));
+    });
+
+    it('gets keys', () => {
+      expect(Array.from(map.keys())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+    });
+
+    it('gets values', () => {
+      expect(Array.from(map.values())).toEqual(range(1, 20).map((n) => toTestArr(n)[1]));
+    });
+
+    it('foreaches', () => {
+      const foreached: Array<{key: string, value: TestObject}> = [];
+
+      map.forEach((value, key) => {
+        foreached.push({key, value});
+      });
+
+      expect(foreached).toEqual(range(1, 20).map((n) => {
+        const item = toTestArr(n);
+        return { key: item[0], value: item[1] };
+      }));
+    });
+
+    it('gets a value', () => {
+      expect(map.get('data 10')).toEqual({ data: '10', order: 10 });
+    });
+
+    it('indicates when it has an item', () => {
+      expect(map.has('data 10')).toBe(true);
+    });
+
+    it('indicates when it does not have an item', () => {
+      expect(map.has('data 99')).toBe(false);
+    });
+
+    it('has the right size', () => {
+      expect(map.size).toBe(20);
+    });
+  });
+
+  describe('keysAsReadonlySet', () => {
+    const adapter = new SortedMapAdapter<string, TestObject>({ getOrderingKey });
+    const sortedMap = adapter.create();
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
+    }
+
+    const set = adapter.keysAsReadonlySet(sortedMap);
+
+    it('iterates', () => {
+      expect(Array.from(set)).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+    });
+
+    it('gets entries', () => {
+      expect(Array.from(set.entries())).toEqual(range(1, 20).map((n) => {
+        const item = toTestArr(n);
+        return [item[0], item[0]];
+      }));
+    });
+
+    it('gets keys', () => {
+      expect(Array.from(set.keys())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+    });
+
+    it('gets values', () => {
+      expect(Array.from(set.values())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+    });
+
+    it('foreaches', () => {
+      const foreached: string[] = [];
+
+      set.forEach((key) => {
+        foreached.push(key);
+      });
+
+      expect(foreached).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+    });
+
+    it('indicates when it has an item', () => {
+      expect(set.has('data 10')).toBe(true);
+    });
+
+    it('indicates when it does not have an item', () => {
+      expect(set.has('data 99')).toBe(false);
+    });
+
+    it('has the right size', () => {
+      expect(set.size).toBe(20);
+    });
+  });
 });

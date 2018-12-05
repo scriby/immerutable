@@ -1,6 +1,6 @@
 import {IMap, MapAdapter} from './map';
 import {Comparer, ISortedCollection, SortedCollectionAdapter} from './sortedcollection';
-import {iterableToIterableIterator} from './util';
+import {iterableToIterableIterator, mapIterable} from './util';
 
 export type Key = string | number;
 
@@ -182,7 +182,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
   }
 
   asReadonlyMap(sortedMap: ISortedMap<K, V, O>): ReadonlyMap<K, V> {
-    const map = {
+    const map: ReadonlyMap<K, V> = {
       [Symbol.iterator]: () => this.getIterable(sortedMap)[Symbol.iterator](),
       entries: () => this.getIterable(sortedMap),
       keys: () => this.getKeys(sortedMap),
@@ -192,8 +192,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
         while (true) {
           const next = iterator.next();
           if (next.done) break;
-
-          callbackfn.call(thisArg, next.value[1], next.value[0], map);
+          callbackfn.call(thisArg, next.value[ 1 ], next.value[ 0 ], map);
         }
       },
       get: (key: K) => this.get(sortedMap, key),
@@ -202,5 +201,28 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     };
 
     return map;
+  }
+
+  keysAsReadonlySet(sortedMap: ISortedMap<K, V, O>): ReadonlySet<K> {
+    const set: ReadonlySet<K> = {
+      [Symbol.iterator]: () => this.getKeys(sortedMap)[Symbol.iterator](),
+      entries: () => mapIterable(this.getKeys(sortedMap), (key) => [key, key]) as IterableIterator<[K, K]>,
+      keys: () => this.getKeys(sortedMap),
+      values: () => this.getKeys(sortedMap),
+      forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
+        const iterator = this.getKeys(sortedMap);
+        while (true) {
+          const next = iterator.next();
+          if (next.done) break;
+          callbackfn.call(thisArg, next.value, next.value, set);
+        }
+      },
+      has: (key: K) => {
+        return this.has(sortedMap, key);
+      },
+      size: this.getSize(sortedMap),
+    };
+
+    return set;
   }
 }
