@@ -297,6 +297,51 @@ export class MapAdapter<K extends Key, V> {
     return iterableToIterableIterator(mapIterable(this.getIterable(map), (entry) => entry[0]));
   }
 
+  asReadonlyMap(map: IMap<K, V>): ReadonlyMap<K, V> {
+    const readonlyMap: ReadonlyMap<K, V> = {
+      [Symbol.iterator]: () => this.getIterable(map)[Symbol.iterator](),
+      entries: () => this.getIterable(map),
+      keys: () => this.getKeysIterable(map),
+      values: () => this.getValuesIterable(map),
+      forEach: (callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: any) => {
+        const iterator = this.getIterable(map);
+        while (true) {
+          const next = iterator.next();
+          if (next.done) break;
+          callbackfn.call(thisArg, next.value[ 1 ], next.value[ 0 ], readonlyMap);
+        }
+      },
+      get: (key: K) => this.get(map, key),
+      has: (key: K) => this.has(map, key),
+      size: this.getSize(map),
+    };
+
+    return readonlyMap;
+  }
+
+  keysAsReadonlySet(map: IMap<K, V>): ReadonlySet<K> {
+    const readonlySet: ReadonlySet<K> = {
+      [Symbol.iterator]: () => this.getKeysIterable(map)[Symbol.iterator](),
+      entries: () => mapIterable(this.getKeysIterable(map), (key) => [key, key]) as IterableIterator<[K, K]>,
+      keys: () => this.getKeysIterable(map),
+      values: () => this.getKeysIterable(map),
+      forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
+        const iterator = this.getKeysIterable(map);
+        while (true) {
+          const next = iterator.next();
+          if (next.done) break;
+          callbackfn.call(thisArg, next.value, next.value, readonlySet);
+        }
+      },
+      has: (key: K) => {
+        return this.has(map, key);
+      },
+      size: this.getSize(map),
+    };
+
+    return readonlySet;
+  }
+
   private createTrieNode(): ITrieNode<K, V> {
     return [];
   }

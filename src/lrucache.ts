@@ -53,6 +53,10 @@ export class LruCacheAdapter<K extends Key, V> {
     return existing && existing.value;
   }
 
+  has(lru: ILruCache<K, V>, key: K): boolean {
+    return this.sortedMapAdapter.has(lru, key);
+  }
+
   getIterable(lru: ILruCache<K, V>): IterableIterator<[K, V]> {
     return iterableToIterableIterator({
       [Symbol.iterator]: () => {
@@ -101,6 +105,51 @@ export class LruCacheAdapter<K extends Key, V> {
 
   remove(lru: ILruCache<K, V>, key: K): void {
     return this.sortedMapAdapter.remove(lru, key);
+  }
+
+  asReadonlyMap(lru: ILruCache<K, V>): ReadonlyMap<K, V> {
+    const readonlyMap: ReadonlyMap<K, V> = {
+      [Symbol.iterator]: () => this.getIterable(lru)[Symbol.iterator](),
+      entries: () => this.getIterable(lru),
+      keys: () => this.getKeysIterable(lru),
+      values: () => this.getValuesIterable(lru),
+      forEach: (callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: any) => {
+        const iterator = this.getIterable(lru);
+        while (true) {
+          const next = iterator.next();
+          if (next.done) break;
+          callbackfn.call(thisArg, next.value[ 1 ], next.value[ 0 ], readonlyMap);
+        }
+      },
+      get: (key: K) => this.get(lru, key),
+      has: (key: K) => this.has(lru, key),
+      size: this.getSize(lru),
+    };
+
+    return readonlyMap;
+  }
+
+  keysAsReadonlySet(lru: ILruCache<K, V>): ReadonlySet<K> {
+    const readonlySet: ReadonlySet<K> = {
+      [Symbol.iterator]: () => this.getKeysIterable(lru)[Symbol.iterator](),
+      entries: () => mapIterable(this.getKeysIterable(lru), (key) => [key, key]) as IterableIterator<[K, K]>,
+      keys: () => this.getKeysIterable(lru),
+      values: () => this.getKeysIterable(lru),
+      forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
+        const iterator = this.getKeysIterable(lru);
+        while (true) {
+          const next = iterator.next();
+          if (next.done) break;
+          callbackfn.call(thisArg, next.value, next.value, readonlySet);
+        }
+      },
+      has: (key: K) => {
+        return this.has(lru, key);
+      },
+      size: this.getSize(lru),
+    };
+
+    return readonlySet;
   }
 
   private getNextOrder(lru: ILruCache<K, V>): number {

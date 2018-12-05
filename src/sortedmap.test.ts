@@ -243,28 +243,28 @@ describe('Sorted map', () => {
       adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
     }
 
-    const map = adapter.asReadonlyMap(sortedMap);
+    const readonlyMap = adapter.asReadonlyMap(sortedMap);
 
     it('iterates', () => {
-      expect(Array.from(map)).toEqual(range(1, 20).map((n) => toTestArr(n)));
+      expect(Array.from(readonlyMap)).toEqual(range(1, 20).map((n) => toTestArr(n)));
     });
 
     it('gets entries', () => {
-      expect(Array.from(map.entries())).toEqual(range(1, 20).map((n) => toTestArr(n)));
+      expect(Array.from(readonlyMap.entries())).toEqual(range(1, 20).map((n) => toTestArr(n)));
     });
 
     it('gets keys', () => {
-      expect(Array.from(map.keys())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+      expect(Array.from(readonlyMap.keys())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
     });
 
     it('gets values', () => {
-      expect(Array.from(map.values())).toEqual(range(1, 20).map((n) => toTestArr(n)[1]));
+      expect(Array.from(readonlyMap.values())).toEqual(range(1, 20).map((n) => toTestArr(n)[1]));
     });
 
     it('foreaches', () => {
       const foreached: Array<{key: string, value: TestObject}> = [];
 
-      map.forEach((value, key) => {
+      readonlyMap.forEach((value, key) => {
         foreached.push({key, value});
       });
 
@@ -275,19 +275,19 @@ describe('Sorted map', () => {
     });
 
     it('gets a value', () => {
-      expect(map.get('data 10')).toEqual({ data: '10', order: 10 });
+      expect(readonlyMap.get('data 10')).toEqual({ data: '10', order: 10 });
     });
 
     it('indicates when it has an item', () => {
-      expect(map.has('data 10')).toBe(true);
+      expect(readonlyMap.has('data 10')).toBe(true);
     });
 
     it('indicates when it does not have an item', () => {
-      expect(map.has('data 99')).toBe(false);
+      expect(readonlyMap.has('data 99')).toBe(false);
     });
 
     it('has the right size', () => {
-      expect(map.size).toBe(20);
+      expect(readonlyMap.size).toBe(20);
     });
   });
 
@@ -299,31 +299,31 @@ describe('Sorted map', () => {
       adapter.set(sortedMap, `data ${i}`, { data: i.toString(), order: i });
     }
 
-    const set = adapter.keysAsReadonlySet(sortedMap);
+    const readonlySet = adapter.keysAsReadonlySet(sortedMap);
 
     it('iterates', () => {
-      expect(Array.from(set)).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+      expect(Array.from(readonlySet)).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
     });
 
     it('gets entries', () => {
-      expect(Array.from(set.entries())).toEqual(range(1, 20).map((n) => {
+      expect(Array.from(readonlySet.entries())).toEqual(range(1, 20).map((n) => {
         const item = toTestArr(n);
         return [item[0], item[0]];
       }));
     });
 
     it('gets keys', () => {
-      expect(Array.from(set.keys())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+      expect(Array.from(readonlySet.keys())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
     });
 
     it('gets values', () => {
-      expect(Array.from(set.values())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
+      expect(Array.from(readonlySet.values())).toEqual(range(1, 20).map((n) => toTestArr(n)[0]));
     });
 
     it('foreaches', () => {
       const foreached: string[] = [];
 
-      set.forEach((key) => {
+      readonlySet.forEach((key) => {
         foreached.push(key);
       });
 
@@ -331,15 +331,15 @@ describe('Sorted map', () => {
     });
 
     it('indicates when it has an item', () => {
-      expect(set.has('data 10')).toBe(true);
+      expect(readonlySet.has('data 10')).toBe(true);
     });
 
     it('indicates when it does not have an item', () => {
-      expect(set.has('data 99')).toBe(false);
+      expect(readonlySet.has('data 99')).toBe(false);
     });
 
     it('has the right size', () => {
-      expect(set.size).toBe(20);
+      expect(readonlySet.size).toBe(20);
     });
   });
 });
