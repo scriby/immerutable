@@ -312,6 +312,26 @@ describe('map', () => {
     expect(adapter.has(map, 'does not exist')).toBe(false);
   });
 
+  it('iterables can be iterated multiple times', () => {
+    const adapter = new MapAdapter<number, typeof testValue>();
+    const map = adapter.create();
+    const testValue = { x: 0, value: 'test value' };
+
+    for (let i = 1; i <= 20; i++) {
+      adapter.set(map, i, { ...testValue, x: i });
+    }
+
+    const iterable = adapter.getIterable(map);
+    const keysIterable = adapter.getKeysIterable(map);
+    const valuesIterable = adapter.getValuesIterable(map);
+
+    expect(Array.from(iterable)).toEqual(Array.from(iterable));
+    expect(Array.from(keysIterable)).toEqual(Array.from(keysIterable));
+    expect(Array.from(valuesIterable)).toEqual(Array.from(valuesIterable));
+
+    expect(Array.from(iterable).length).toBeGreaterThan(0);
+  });
+
   describe('asReadonlyMap', () => {
     const adapter = new MapAdapter<string, number>();
     const map = adapter.create();
@@ -336,6 +356,13 @@ describe('map', () => {
 
     it('gets values', () => {
       expect(Array.from(readonlyMap.values()).sort()).toEqual(range(1, 9));
+    });
+
+    it('can be iterated multiple times', () => {
+      expect(Array.from(readonlyMap)).toEqual(Array.from(readonlyMap));
+      expect(Array.from(readonlyMap.entries())).toEqual(Array.from(readonlyMap.entries()));
+      expect(Array.from(readonlyMap.keys())).toEqual(Array.from(readonlyMap.keys()));
+      expect(Array.from(readonlyMap.values())).toEqual(Array.from(readonlyMap.values()));
     });
 
     it('foreaches', () => {
@@ -391,6 +418,13 @@ describe('map', () => {
 
     it('gets values', () => {
       expect(Array.from(readonlySet.values()).sort()).toEqual(range(1, 9));
+    });
+
+    it('can be iterated multiple times', () => {
+      expect(Array.from(readonlySet)).toEqual(Array.from(readonlySet));
+      expect(Array.from(readonlySet.entries())).toEqual(Array.from(readonlySet.entries()));
+      expect(Array.from(readonlySet.keys())).toEqual(Array.from(readonlySet.keys()));
+      expect(Array.from(readonlySet.values())).toEqual(Array.from(readonlySet.values()));
     });
 
     it('foreaches', () => {

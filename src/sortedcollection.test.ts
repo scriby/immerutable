@@ -449,4 +449,21 @@ describe('B-tree', () => {
       expect(Array.from(adapter.getIterable(btree, 'backward')).reverse()).toEqual(range(i, 50));
     }
   });
+
+  it('iterates iterables multiple times', () => {
+    const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
+    const btree = adapter.create();
+
+    for (let i = 0; i < 20; i++) {
+      adapter.insert(btree, i);
+    }
+
+    const iterable = adapter.getIterable(btree, 'forward');
+    const backwardIterable = adapter.getIterable(btree, 'backward');
+
+    expect(Array.from(iterable)).toEqual(Array.from(iterable));
+    expect(Array.from(backwardIterable)).toEqual(Array.from(backwardIterable));
+
+    expect(Array.from(iterable).length).toBeGreaterThan(0);
+  });
 });

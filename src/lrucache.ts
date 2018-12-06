@@ -57,8 +57,8 @@ export class LruCacheAdapter<K extends Key, V> {
     return this.sortedMapAdapter.has(lru, key);
   }
 
-  getIterable(lru: ILruCache<K, V>): IterableIterator<[K, V]> {
-    return iterableToIterableIterator({
+  getIterable(lru: ILruCache<K, V>): Iterable<[K, V]> {
+    return {
       [Symbol.iterator]: () => {
         const sortedIterable = this.sortedMapAdapter.getIterable(lru)[Symbol.iterator]();
 
@@ -74,15 +74,15 @@ export class LruCacheAdapter<K extends Key, V> {
           }
         };
       }
-    });
+    };
   }
 
-  getValuesIterable(lru: ILruCache<K, V>): IterableIterator<V> {
-    return iterableToIterableIterator(mapIterable(this.getIterable(lru), (entry) => entry[1]));
+  getValuesIterable(lru: ILruCache<K, V>): Iterable<V> {
+    return mapIterable(this.getIterable(lru), (entry) => entry[1]);
   }
 
-  getKeysIterable(lru: ILruCache<K, V>): IterableIterator<K> {
-    return iterableToIterableIterator(mapIterable(this.getIterable(lru), (entry) => entry[0]));
+  getKeysIterable(lru: ILruCache<K, V>): Iterable<K> {
+    return mapIterable(this.getIterable(lru), (entry) => entry[0]);
   }
 
   update(lru: ILruCache<K, V>, key: K, updater: (item: V) => V|void): V|undefined {
@@ -109,16 +109,16 @@ export class LruCacheAdapter<K extends Key, V> {
 
   asReadonlyMap(lru: ILruCache<K, V>): ReadonlyMap<K, V> {
     const readonlyMap: ReadonlyMap<K, V> = {
-      [Symbol.iterator]: () => this.getIterable(lru)[Symbol.iterator](),
-      entries: () => this.getIterable(lru),
-      keys: () => this.getKeysIterable(lru),
-      values: () => this.getValuesIterable(lru),
+      [Symbol.iterator]: () => iterableToIterableIterator(this.getIterable(lru))[Symbol.iterator](),
+      entries: () => iterableToIterableIterator(this.getIterable(lru)),
+      keys: () => iterableToIterableIterator(this.getKeysIterable(lru)),
+      values: () => iterableToIterableIterator(this.getValuesIterable(lru)),
       forEach: (callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: any) => {
-        const iterator = this.getIterable(lru);
+        const iterator = readonlyMap.entries();
         while (true) {
           const next = iterator.next();
           if (next.done) break;
-          callbackfn.call(thisArg, next.value[ 1 ], next.value[ 0 ], readonlyMap);
+          callbackfn.call(thisArg, next.value[1], next.value[0], readonlyMap);
         }
       },
       get: (key: K) => this.get(lru, key),
@@ -131,21 +131,19 @@ export class LruCacheAdapter<K extends Key, V> {
 
   keysAsReadonlySet(lru: ILruCache<K, V>): ReadonlySet<K> {
     const readonlySet: ReadonlySet<K> = {
-      [Symbol.iterator]: () => this.getKeysIterable(lru)[Symbol.iterator](),
-      entries: () => mapIterable(this.getKeysIterable(lru), (key) => [key, key]) as IterableIterator<[K, K]>,
-      keys: () => this.getKeysIterable(lru),
-      values: () => this.getKeysIterable(lru),
+      [Symbol.iterator]: () => iterableToIterableIterator(this.getKeysIterable(lru))[Symbol.iterator](),
+      entries: () => iterableToIterableIterator(mapIterable(this.getKeysIterable(lru), (key) => [key, key] as [K, K])),
+      keys: () => iterableToIterableIterator(this.getKeysIterable(lru)),
+      values: () => iterableToIterableIterator(this.getKeysIterable(lru)),
       forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
-        const iterator = this.getKeysIterable(lru);
+        const iterator = readonlySet.keys();
         while (true) {
           const next = iterator.next();
           if (next.done) break;
           callbackfn.call(thisArg, next.value, next.value, readonlySet);
         }
       },
-      has: (key: K) => {
-        return this.has(lru, key);
-      },
+      has: (key: K) =>  this.has(lru, key),
       size: this.getSize(lru),
     };
 

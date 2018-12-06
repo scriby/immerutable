@@ -226,48 +226,49 @@ export class MapAdapter<K extends Key, V> {
    * }
    * ```
    */
-  getIterable(map: IMap<K, V>): IterableIterator<[K, V]> {
+  getIterable(map: IMap<K, V>): Iterable<[K, V]> {
     type Frame = {
       index: number,
       content: ITrieNode<K, V> | ISingleValueNode<K, V> | IMultiValueNode<K, V>,
     };
-    const stack: Frame[] = [{ index: 0, content: map.root }];
 
-    const traverseToFurthestLeft = (frame: Frame): ISingleValueNode<K, V>|undefined => {
-      if (frame === undefined) return undefined;
-
-      if (Array.isArray(frame.content)) {
-        if (frame.index < frame.content.length) {
-          const child = frame.content[frame.index++];
-          if (child === undefined) {
-            return traverseToFurthestLeft(frame);
-          }
-
-          const nextFrame = { content: child, index: 0 };
-          stack.push(nextFrame);
-          return traverseToFurthestLeft(nextFrame);
-        } else {
-          stack.pop();
-
-          return traverseToFurthestLeft(stack[stack.length - 1]);
-        }
-      } else if ('value' in frame.content) {
-        stack.pop();
-
-        return frame.content as ISingleValueNode<K, V>;
-      } else {
-        stack.pop();
-        const multiValueNode = frame.content as IMultiValueNode<K, V>;
-        const nextContent = Object.keys(multiValueNode.map).map(key => multiValueNode.map[key]);
-        const nextFrame = { content: nextContent, index: 0 };
-        stack.push(nextFrame);
-
-        return traverseToFurthestLeft(nextFrame);
-      }
-    };
-
-    return iterableToIterableIterator({
+    return {
       [Symbol.iterator]: () => {
+        const stack: Frame[] = [{ index: 0, content: map.root }];
+
+        const traverseToFurthestLeft = (frame: Frame): ISingleValueNode<K, V>|undefined => {
+          if (frame === undefined) return undefined;
+
+          if (Array.isArray(frame.content)) {
+            if (frame.index < frame.content.length) {
+              const child = frame.content[frame.index++];
+              if (child === undefined) {
+                return traverseToFurthestLeft(frame);
+              }
+
+              const nextFrame = { content: child, index: 0 };
+              stack.push(nextFrame);
+              return traverseToFurthestLeft(nextFrame);
+            } else {
+              stack.pop();
+
+              return traverseToFurthestLeft(stack[stack.length - 1]);
+            }
+          } else if ('value' in frame.content) {
+            stack.pop();
+
+            return frame.content as ISingleValueNode<K, V>;
+          } else {
+            stack.pop();
+            const multiValueNode = frame.content as IMultiValueNode<K, V>;
+            const nextContent = Object.keys(multiValueNode.map).map(key => multiValueNode.map[key]);
+            const nextFrame = { content: nextContent, index: 0 };
+            stack.push(nextFrame);
+
+            return traverseToFurthestLeft(nextFrame);
+          }
+        };
+
         return {
           next: () => {
             const value = traverseToFurthestLeft(stack[stack.length - 1]);
@@ -286,29 +287,29 @@ export class MapAdapter<K extends Key, V> {
           }
         };
       }
-    });
+    };
   }
 
-  getValuesIterable(map: IMap<K, V>): IterableIterator<V> {
-    return iterableToIterableIterator(mapIterable(this.getIterable(map), (entry) => entry[1]));
+  getValuesIterable(map: IMap<K, V>): Iterable<V> {
+    return mapIterable(this.getIterable(map), (entry) => entry[1]);
   }
 
-  getKeysIterable(map: IMap<K, V>): IterableIterator<K> {
-    return iterableToIterableIterator(mapIterable(this.getIterable(map), (entry) => entry[0]));
+  getKeysIterable(map: IMap<K, V>): Iterable<K> {
+    return mapIterable(this.getIterable(map), (entry) => entry[0]);
   }
 
   asReadonlyMap(map: IMap<K, V>): ReadonlyMap<K, V> {
     const readonlyMap: ReadonlyMap<K, V> = {
-      [Symbol.iterator]: () => this.getIterable(map)[Symbol.iterator](),
-      entries: () => this.getIterable(map),
-      keys: () => this.getKeysIterable(map),
-      values: () => this.getValuesIterable(map),
+      [Symbol.iterator]: () => iterableToIterableIterator(this.getIterable(map))[Symbol.iterator](),
+      entries: () => iterableToIterableIterator(this.getIterable(map)),
+      keys: () => iterableToIterableIterator(this.getKeysIterable(map)),
+      values: () => iterableToIterableIterator(this.getValuesIterable(map)),
       forEach: (callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: any) => {
-        const iterator = this.getIterable(map);
+        const iterator = readonlyMap.entries();
         while (true) {
           const next = iterator.next();
           if (next.done) break;
-          callbackfn.call(thisArg, next.value[ 1 ], next.value[ 0 ], readonlyMap);
+          callbackfn.call(thisArg, next.value[1], next.value[0], readonlyMap);
         }
       },
       get: (key: K) => this.get(map, key),
@@ -321,21 +322,19 @@ export class MapAdapter<K extends Key, V> {
 
   keysAsReadonlySet(map: IMap<K, V>): ReadonlySet<K> {
     const readonlySet: ReadonlySet<K> = {
-      [Symbol.iterator]: () => this.getKeysIterable(map)[Symbol.iterator](),
-      entries: () => mapIterable(this.getKeysIterable(map), (key) => [key, key]) as IterableIterator<[K, K]>,
-      keys: () => this.getKeysIterable(map),
-      values: () => this.getKeysIterable(map),
+      [Symbol.iterator]: () => iterableToIterableIterator(this.getKeysIterable(map))[Symbol.iterator](),
+      entries: () => iterableToIterableIterator(mapIterable(this.getKeysIterable(map), (key) => [key, key] as [K, K])),
+      keys: () => iterableToIterableIterator(this.getKeysIterable(map)),
+      values: () => iterableToIterableIterator(this.getKeysIterable(map)),
       forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
-        const iterator = this.getKeysIterable(map);
+        const iterator = readonlySet.keys();
         while (true) {
           const next = iterator.next();
           if (next.done) break;
           callbackfn.call(thisArg, next.value, next.value, readonlySet);
         }
       },
-      has: (key: K) => {
-        return this.has(map, key);
-      },
+      has: (key: K) =>  this.has(map, key),
       size: this.getSize(map),
     };
 

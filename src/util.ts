@@ -13,18 +13,18 @@ export function shallowCopy(value: any) {
 }
 
 export function iterableToIterableIterator<T>(iterable: Iterable<T>): IterableIterator<T> {
-  let iterator: Iterator<T>;
+  const getIterableIterator = (iterator?: Iterator<T>) => {
+    return {
+      [Symbol.iterator]: () => getIterableIterator(iterable[Symbol.iterator]()),
+      next: iterator ? () => iterator!.next() : (() => {
+        if (!iterator) iterator = iterable[Symbol.iterator]();
 
-  const iterableIterator = {
-    [Symbol.iterator]: () => iterableIterator,
-    next: () => {
-      if (!iterator) iterator = iterable[Symbol.iterator]();
-
-      return iterator.next();
-    }
+        return iterator.next();
+      })
+    };
   };
 
-  return iterableIterator;
+  return getIterableIterator();
 }
 
 export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) => U): Iterable<U> {
@@ -37,7 +37,7 @@ export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) =>
           const next = iterator.next();
 
           if (next.done) {
-            return { value: next.value !== undefined ? transform(next.value) : undefined as any as U, done: true };
+            return { value: undefined as any as U, done: true };
           } else {
             return { value: transform(next.value), done: false };
           }

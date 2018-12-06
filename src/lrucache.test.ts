@@ -77,6 +77,25 @@ describe('LRU Cache', () => {
     expect(Array.from(adapter.getKeysIterable(lru))).toEqual(['a', 'b', 'c']);
   });
 
+  it('iterables can be iterated multiple times', () => {
+    const adapter = new LruCacheAdapter<string, string>(4);
+    const lru = adapter.create();
+
+    adapter.set(lru, 'a', 'a');
+    adapter.set(lru, 'b', 'b');
+    adapter.set(lru, 'c', 'c');
+
+    const iterable = adapter.getIterable(lru);
+    const keysIterable = adapter.getKeysIterable(lru);
+    const valuesIterable = adapter.getValuesIterable(lru);
+
+    expect(Array.from(iterable)).toEqual(Array.from(iterable));
+    expect(Array.from(keysIterable)).toEqual(Array.from(keysIterable));
+    expect(Array.from(valuesIterable)).toEqual(Array.from(valuesIterable));
+
+    expect(Array.from(iterable).length).toBeGreaterThan(0);
+  });
+
   describe('asReadonlyMap', () => {
     const adapter = new LruCacheAdapter<string, number>(10);
     const map = adapter.create();
@@ -101,6 +120,13 @@ describe('LRU Cache', () => {
 
     it('gets values', () => {
       expect(Array.from(readonlyMap.values()).sort()).toEqual(range(1, 9));
+    });
+
+    it('can be iterated multiple times', () => {
+      expect(Array.from(readonlyMap)).toEqual(Array.from(readonlyMap));
+      expect(Array.from(readonlyMap.entries())).toEqual(Array.from(readonlyMap.entries()));
+      expect(Array.from(readonlyMap.keys())).toEqual(Array.from(readonlyMap.keys()));
+      expect(Array.from(readonlyMap.values())).toEqual(Array.from(readonlyMap.values()));
     });
 
     it('foreaches', () => {
@@ -156,6 +182,13 @@ describe('LRU Cache', () => {
 
     it('gets values', () => {
       expect(Array.from(readonlySet.values()).sort()).toEqual(range(1, 9));
+    });
+
+    it('can be iterated multiple times', () => {
+      expect(Array.from(readonlySet)).toEqual(Array.from(readonlySet));
+      expect(Array.from(readonlySet.entries())).toEqual(Array.from(readonlySet.entries()));
+      expect(Array.from(readonlySet.keys())).toEqual(Array.from(readonlySet.keys()));
+      expect(Array.from(readonlySet.values())).toEqual(Array.from(readonlySet.values()));
     });
 
     it('foreaches', () => {
