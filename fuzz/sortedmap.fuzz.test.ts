@@ -27,10 +27,90 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
     }
 
     let lastOrder = -Infinity;
-    for (const {key, value} of adapter.getIterable(map)) {
+    for (const [key, value] of adapter.getIterable(map)) {
       expect(value.order).toBeGreaterThanOrEqual(lastOrder);
       lastOrder = value.order;
       expect(value).toEqual(expected[key]);
+    }
+  });
+
+  it('Retains consistency for a large map with in-order inserts', () => {
+    const LENGTH = 300000;
+    const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
+      getOrderingKey: item => item.order,
+    });
+    const map = adapter.create();
+
+    for (let i = 1; i <= LENGTH; i++) {
+      adapter.set(map, i, { data: i, order: i });
+    }
+
+    expect(adapter.getSize(map)).toEqual(LENGTH);
+
+    let curr = 0;
+    for (const [key, value] of adapter.getIterable(map)) {
+      curr++;
+
+      expect(key).toEqual(curr);
+      expect(value.data).toEqual(curr);
+      expect(value.order).toEqual(curr);
+    }
+
+    expect(curr).toEqual(LENGTH);
+  });
+
+  it('Retains consistency for a large map with reverse-order inserts', () => {
+    const LENGTH = 300000;
+    const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
+      getOrderingKey: item => -item.order,
+    });
+    const map = adapter.create();
+
+    for (let i = 1; i <= LENGTH; i++) {
+      adapter.set(map, i, { data: i, order: i });
+    }
+
+    expect(adapter.getSize(map)).toEqual(LENGTH);
+
+    let curr = LENGTH;
+    for (const [key, value] of adapter.getIterable(map)) {
+      expect(key).toEqual(curr);
+      expect(value.data).toEqual(curr);
+      expect(value.order).toEqual(curr);
+
+      curr--;
+    }
+
+    expect(curr).toEqual(0);
+  });
+
+  it('Retains consistency for medium list sizes', () => {
+    const random = rng.aleaRNGFactory(seed);
+
+    for (let i = 0; i < 200; i++) {
+      const adapter = new SortedMapAdapter<number, { data: number, order: number }, number>({
+        getOrderingKey: item => -item.order,
+      });
+
+      const map = adapter.create();
+
+      const length = 3000 + (random.uInt32() % 2000);
+      const variance = (random.uInt32() % 100) + 1;
+
+      for (let k = 1; k <= length; k++) {
+        const key = k + (random.uInt32() % variance);
+        const order = k + (random.uInt32() % variance);
+
+        adapter.set(map, key, { data: key, order });
+      }
+
+      let lastOrder = Infinity;
+      for (const [key, value] of adapter.getIterable(map)) {
+        expect(value.order).toBeLessThanOrEqual(lastOrder);
+        lastOrder = value.order;
+
+        expect(value.data).toEqual(key);
+      }
     }
   });
 
@@ -70,7 +150,7 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
     }
 
     let lastOrder = -Infinity;
-    for (const {key, value} of adapter.getIterable(map)) {
+    for (const [key, value] of adapter.getIterable(map)) {
       expect(value.order).toBeGreaterThanOrEqual(lastOrder);
       lastOrder = value.order;
       expect(value).toEqual(expected[key]);
@@ -109,7 +189,7 @@ describe(`SortedSet (fuzz) (Seed: ${seed})`, () => {
     }
 
     let lastOrder = -Infinity;
-    for (const {key, value} of adapter.getIterable(map)) {
+    for (const [key, value] of adapter.getIterable(map)) {
       expect(value.order).toBeGreaterThanOrEqual(lastOrder);
       lastOrder = value.order;
       expect(value).toEqual(expected[key]);
