@@ -53,6 +53,12 @@ export class LruCacheAdapter<K extends Key, V> {
     return existing && existing.value;
   }
 
+  peek(lru: ILruCache<K, V>, key: K): V|undefined {
+    const existing = this.sortedMapAdapter.get(lru, key);
+
+    return existing && existing.value;
+  }
+
   has(lru: ILruCache<K, V>, key: K): boolean {
     return this.sortedMapAdapter.has(lru, key);
   }
@@ -121,7 +127,7 @@ export class LruCacheAdapter<K extends Key, V> {
           callbackfn.call(thisArg, next.value[1], next.value[0], readonlyMap);
         }
       },
-      get: (key: K) => this.get(lru, key),
+      get: (key: K) => this.peek(lru, key),
       has: (key: K) => this.has(lru, key),
       size: this.getSize(lru),
     };
