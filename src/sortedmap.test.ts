@@ -1,4 +1,4 @@
-import {SortedMapAdapter} from './sortedMap';
+import {SortedMapAdapter} from './sortedmap';
 
 interface TestObject {
   data: string;

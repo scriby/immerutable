@@ -20,7 +20,12 @@ export function iterableToIterableIterator<T>(iterable: Iterable<T>): IterableIt
         if (!iterator) iterator = iterable[Symbol.iterator]();
 
         return iterator.next();
-      })
+      }),
+      [Symbol.dispose]: () => {
+        if (Symbol.dispose in iterable) {
+          (iterable as Iterable<T> & Disposable)[Symbol.dispose]();
+        }
+      }
     };
   };
 

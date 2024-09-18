@@ -455,7 +455,7 @@ export class SortedCollectionAdapter<T> {
       copyInto.items.push.apply(copyInto.items, copyFrom.items);
 
       if (!isLeafNode) {
-        copyInto.children!.push.apply(copyInto.children, copyFrom.children);
+        copyInto.children!.push.apply(copyInto.children, copyFrom.children!);
       }
 
       // If the current root is empty, make the current node the new root.
