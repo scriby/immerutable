@@ -13,23 +13,20 @@ export function shallowCopy(value: any) {
 }
 
 export function iterableToIterableIterator<T>(iterable: Iterable<T>): IterableIterator<T> {
-  const getIterableIterator = (iterator?: Iterator<T>) => {
-    return {
-      [Symbol.iterator]: () => getIterableIterator(iterable[Symbol.iterator]()),
-      next: iterator ? () => iterator!.next() : (() => {
-        if (!iterator) iterator = iterable[Symbol.iterator]();
-
-        return iterator.next();
-      }),
-      [Symbol.dispose]: () => {
-        if (Symbol.dispose in iterable) {
-          (iterable as Iterable<T> & Disposable)[Symbol.dispose]();
-        }
+  let iterator: Iterator<T> | undefined;
+  const result: IterableIterator<T> & Disposable = {
+    [Symbol.iterator]: () => result,
+    next: () => {
+      if (!iterator) iterator = iterable[Symbol.iterator]();
+      return iterator.next();
+    },
+    [Symbol.dispose]: () => {
+      if (Symbol.dispose in iterable) {
+        (iterable as Iterable<T> & Disposable)[Symbol.dispose]();
       }
-    };
+    },
   };
-
-  return getIterableIterator();
+  return result;
 }
 
 export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) => U): Iterable<U> {
@@ -50,4 +47,9 @@ export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) =>
       };
     }
   };
+}
+
+/** Map key equality: NaN equals itself, and -0 and +0 share a key. */
+export function sameValueZero<T>(a: T, b: T): boolean {
+  return a === b || (a !== a && b !== b);
 }

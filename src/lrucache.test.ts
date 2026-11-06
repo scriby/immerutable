@@ -1,8 +1,34 @@
+import produce, {mutate, proxyModes, setUseProxies} from './test-support/immer';
 import {LruCacheAdapter} from './lrucache';
+import {hash} from './hash';
 
 const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
 
 describe('LRU Cache', () => {
+  describe.each(proxyModes)('restored special keys (Immer proxies: %s)', useProxies => {
+    beforeEach(() => setUseProxies(useProxies));
+    afterEach(() => setUseProxies(true));
+
+    it('preserves recency and evicts the oldest entry after JSON restoration', () => {
+      const adapter = new LruCacheAdapter<number | string, string>(2);
+      const prefix = hash('__proto__') & 0x0fffffff;
+      const initial = adapter.create();
+      adapter.set(initial, prefix, 'first');
+      adapter.set(initial, '__proto__', 'second');
+      const original: typeof initial = JSON.parse(JSON.stringify(initial));
+      const before = JSON.stringify(original);
+
+      expect(Array.from(adapter.getIterable(original))).toEqual([[prefix, 'first'], ['__proto__', 'second']]);
+      const updated = produce(original, draft => {
+        expect(adapter.get(draft, prefix)).toBe('first');
+        adapter.set(draft, prefix + 2 ** 28, 'third');
+      });
+      expect(Array.from(adapter.getIterable(updated))).toEqual([[prefix, 'first'], [prefix + 2 ** 28, 'third']]);
+      expect(JSON.stringify(original)).toBe(before);
+      expect(Array.from(adapter.getIterable(original))).toEqual([[prefix, 'first'], ['__proto__', 'second']]);
+    });
+  });
+
   it('expires old items', () => {
     const adapter = new LruCacheAdapter<string, string>(4);
     const lru = adapter.create();
@@ -211,6 +237,66 @@ describe('LRU Cache', () => {
 
     it('has the right size', () => {
       expect(readonlySet.size).toBe(9);
+    });
+  });
+
+  describe('updates and batch eviction', () => {
+    it.each([0, false, '', null])('accepts a falsy replacement returned by update: %s', value => {
+      const adapter = new LruCacheAdapter<string, number | boolean | string | null>(4);
+      const cache = adapter.create();
+      adapter.set(cache, 'key', 'original');
+
+      const result = adapter.update(cache, 'key', () => value);
+
+      expect(adapter.peek(cache, 'key')).toBe(value);
+      expect(result).toBe(value);
+    });
+
+    describe.each([false, true])('batch eviction (Immer: %s)', useImmer => {
+      it.each([10, 64])('evicts the oldest consecutive entries at capacity %s', capacity => {
+        const adapter = new LruCacheAdapter<number, number>(capacity);
+        const original = adapter.create();
+        const threshold = Math.floor(capacity * 1.1);
+        for (let key = 0; key < threshold; key++) adapter.set(original, key, key);
+
+        const result = mutate(original, useImmer, draft => adapter.set(draft, threshold, threshold));
+
+        const expected = Array.from({length: capacity}, (_, i) => threshold + 1 - capacity + i);
+        expect(Array.from(adapter.getKeysIterable(result))).toEqual(expected);
+        expect(adapter.getSize(result)).toBe(capacity);
+        if (useImmer) expect(adapter.getSize(original)).toBe(threshold);
+      });
+    });
+  });
+
+  describe('readonly views after mutation or partial iteration', () => {
+    function setup() {
+      const adapter = new LruCacheAdapter<number, number>(10);
+      const map = adapter.create();
+      return {add: (key: number) => adapter.set(map, key, key),
+        map: adapter.asReadonlyMap(map), set: adapter.keysAsReadonlySet(map)};
+    }
+
+    it.each(['map', 'set'] as const)('reports the current size of the %s view after mutation', view => {
+      const fixture = setup();
+      fixture.add(1);
+
+      expect(fixture[view].has(1)).toBe(true);
+      expect(Array.from(fixture[view].values())).toEqual([1]);
+      expect(fixture[view].size).toBe(1);
+    });
+
+    it.each(['map', 'set'] as const)('resumes a partially consumed %s iterator instead of restarting it', view => {
+      const fixture = setup();
+      fixture.add(1);
+      fixture.add(2);
+      const expected = Array.from(fixture[view].values());
+      const iterator = fixture[view].values();
+      expect(iterator.next().value).toBe(expected[0]);
+
+      expect(Array.from(iterator)).toEqual(expected.slice(1));
+      expect(iterator[Symbol.iterator]()).toBe(iterator);
+      expect(iterator.next().done).toBe(true);
     });
   });
 });

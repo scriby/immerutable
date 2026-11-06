@@ -13,14 +13,30 @@ declare const global: any;
 const WARMUP_ITERATIONS = 1000;
 const ITERATIONS = 4000;
 type Obj = { order?: number, id?: number|string, data?: string };
+let randomState = 0x5eed;
+function random() {
+  randomState ^= randomState << 13;
+  randomState ^= randomState >>> 17;
+  randomState ^= randomState << 5;
+  return (randomState >>> 0) / 0x100000000;
+}
 
 function benchmark(label: string, cb: (iterations: number) => void) {
+  randomState = 0x5eed;
   cb(WARMUP_ITERATIONS); // Warm up V8 to let it optimize the code
   global.gc();
 
+  randomState = 0x5eed;
   console.time(label);
   cb(ITERATIONS);
   console.timeEnd(label);
+}
+
+let iterationChecksum = 0;
+function repeatIteration(action: () => void) {
+  return (iterations: number) => {
+    for (let pass = 0; pass < iterations; pass++) action();
+  };
 }
 
 function immerutableMap() {
@@ -56,7 +72,7 @@ function immerutableBtree() {
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedCollectionAdapter.insert(draft.btree, { data: i.toString(), order: Math.random() });
+        sortedCollectionAdapter.insert(draft.btree, { data: i.toString(), order: random() });
       });
     }
   });
@@ -77,13 +93,13 @@ function immerutableBtree() {
       sortedCollectionAdapter.insert(state.btree, {data: i.toString(), order: i });
     }
 
-    return () => {
+    return repeatIteration(() => {
       state = produce(state, (draft: typeof state) => {
         for (const item of sortedCollectionAdapter.getIterable(draft.btree)) {
-
+          iterationChecksum += item.order!;
         }
       });
-    };
+    });
   })());
 
   benchmark(`immerutable sorted collection iteration (outside immer) (size: ${ITERATIONS})`, (() => {
@@ -92,11 +108,11 @@ function immerutableBtree() {
       sortedCollectionAdapter.insert(state.btree, {data: i.toString(), order: i });
     }
 
-    return () => {
+    return repeatIteration(() => {
       for (const item of sortedCollectionAdapter.getIterable(state.btree)) {
-
+        iterationChecksum += item.order!;
       }
-    };
+    });
   })());
 }
 
@@ -120,7 +136,7 @@ function immerutableSortedMap() {
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        sortedMapAdapter.set(draft.sortedMap, i.toString(), { data: i.toString(), order: Math.random() });
+        sortedMapAdapter.set(draft.sortedMap, i.toString(), { data: i.toString(), order: random() });
       });
     }
   });
@@ -141,13 +157,13 @@ function immerutableSortedMap() {
       sortedMapAdapter.set(state.sortedMap, i.toString(), {data: i.toString(), order: i });
     }
 
-    return () => {
+    return repeatIteration(() => {
       state = produce(state, (draft: typeof state) => {
         for (const item of sortedMapAdapter.getIterable(draft.sortedMap)) {
-
+          iterationChecksum += item[1].order!;
         }
       });
-    };
+    });
   })());
 
   benchmark(`immerutable sorted map iteration (outside immer) (size: ${ITERATIONS})`, (() => {
@@ -156,11 +172,11 @@ function immerutableSortedMap() {
       sortedMapAdapter.set(state.sortedMap, i.toString(), {data: i.toString(), order: i });
     }
 
-    return () => {
+    return repeatIteration(() => {
       for (const item of sortedMapAdapter.getIterable(state.sortedMap)) {
-
+        iterationChecksum += item[1].order!;
       }
-    };
+    });
   })());
 }
 
@@ -180,7 +196,7 @@ function immerArray() {
 
     for (let i = 0; i < iterations; i++) {
       state = produce(state, (draft: typeof state) => {
-        draft.array.splice(Math.floor(Math.random() * i), 0, { id: i, data: i.toString() });
+        draft.array.splice(Math.floor(random() * i), 0, { id: i, data: i.toString() });
       });
     }
   });
@@ -195,20 +211,20 @@ function immerArray() {
     }
   });
 
-  benchmark('immer array iteration (inside immer) (size = 4000)', () => {
+  benchmark('immer array iteration (inside immer) (size = 4000)', (() => {
     let state = { array: [] as Obj[] };
     for (let i = 0; i < ITERATIONS; i++) {
       state.array.push({ id: i, data: i.toString() });
     }
 
-    return () => {
+    return repeatIteration(() => {
       state = produce(state, (draft: typeof state) => {
         for (const item of draft.array) {
-
+          iterationChecksum += Number(item.id);
         }
       });
-    };
-  });
+    });
+  })());
 }
 
 function immerMap() {
@@ -268,3 +284,4 @@ immerutableSortedMap();
 divider();
 
 lruCache();
+console.log('Iteration checksum:', iterationChecksum);

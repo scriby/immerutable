@@ -1,5 +1,3 @@
-import {iterableToIterableIterator} from './util';
-
 export interface IBTreeNode<T> {
   isRoot?: boolean;
   items: IBTreeValueNode<T>[];
@@ -116,13 +114,13 @@ export class SortedCollectionAdapter<T> {
    * @param nodeInfo The return value of of calling lookupValuePath for the value being mutated.
    */
   ensureSortedOrderOfNode(collection: ISortedCollection<T>, nodeInfo: LookupNodeInfo<T>): void {
-    const precedingItem = this.getPreviousValue(nodeInfo.parentPath);
-    const nextItem = this.getNextValue(nodeInfo.parentPath);
+    const precedingItem = this.getPreviousNode(nodeInfo.parentPath);
+    const nextItem = this.getNextNode(nodeInfo.parentPath);
     const value = nodeInfo.valueNode.value;
 
     if (
-      (precedingItem && this.orderComparer(value, precedingItem) < 0) ||
-      (nextItem && this.orderComparer(value, nextItem) > 0)
+      (precedingItem !== undefined && this.orderComparer(value, precedingItem.value) < 0) ||
+      (nextItem !== undefined && this.orderComparer(value, nextItem.value) > 0)
     ) {
       // Item is out of order, remove and re-insert it to fix up the order.
       this.removeByPath(nodeInfo);
@@ -139,13 +137,15 @@ export class SortedCollectionAdapter<T> {
   getFirst(collection: ISortedCollection<T>): T|undefined {
     if (collection.root.items.length === 0) return;
 
-    return this.getFurthestLeftValue(collection.root);
+    const node = this.getFurthestLeftNode(collection.root);
+    return node && node.value;
   }
 
   getLast(collection: ISortedCollection<T>): T|undefined {
     if (collection.root.items.length === 0) return;
 
-    return this.getFurthestRightValue(collection.root);
+    const node = this.getFurthestRightNode(collection.root);
+    return node && node.value;
   }
 
   remove(collection: ISortedCollection<T>, value: T): void {
@@ -177,7 +177,7 @@ export class SortedCollectionAdapter<T> {
       [Symbol.iterator]: () => {
         const stack: Frame[] = [{ onChildren: true, index: 0, items: collection.root.items, children: collection.root.children }];
 
-        function traverseToFurthestLeft(frame: Frame): T|undefined {
+        function traverseToFurthestLeft(frame: Frame): IBTreeValueNode<T>|undefined {
           if (frame === undefined) return undefined;
 
           if (
@@ -194,7 +194,7 @@ export class SortedCollectionAdapter<T> {
             } else {
               const item = frame.items[frame.index++];
               frame.onChildren = true;
-              return item.value;
+              return item;
             }
           } else {
             stack.pop();
@@ -209,7 +209,7 @@ export class SortedCollectionAdapter<T> {
 
             if (value !== undefined) {
               return {
-                value: value as T,
+                value: value.value,
                 done: false,
               };
             } else {
@@ -241,7 +241,7 @@ export class SortedCollectionAdapter<T> {
           children: collection.root.children
         }];
 
-        function traverseToFurthestRight(frame: Frame): T|undefined {
+        function traverseToFurthestRight(frame: Frame): IBTreeValueNode<T>|undefined {
           if (frame === undefined) return undefined;
 
           if (
@@ -264,7 +264,7 @@ export class SortedCollectionAdapter<T> {
               const item = frame.items[--frame.index];
 
               frame.onChildren = true;
-              return item.value;
+              return item;
             }
           } else {
             stack.pop();
@@ -279,7 +279,7 @@ export class SortedCollectionAdapter<T> {
 
             if (value !== undefined) {
               return {
-                value: value as T,
+                value: value.value,
                 done: false,
               };
             } else {
@@ -395,7 +395,7 @@ export class SortedCollectionAdapter<T> {
       }
 
       const valueContainer = valueInfo.parentPath[valueInfo.parentPath.length - 1];
-      valueContainer.node.items.splice(valueContainer.index);
+      valueContainer.node.items.splice(valueContainer.index, 1);
       containerInfo.node.items.splice(containerInfo.index, 0, valueInfo.valueNode);
 
       this.rebalance(valueInfo.parentPath);
@@ -516,28 +516,28 @@ export class SortedCollectionAdapter<T> {
     }
   }
 
-  private getFurthestLeftValue(node: IBTreeNode<T>): T|undefined {
+  private getFurthestLeftNode(node: IBTreeNode<T>): IBTreeValueNode<T>|undefined {
     if (this.isLeafNode(node)) {
-      return node.items.length ? node.items[0].value : undefined;
+      return node.items[0];
     } else {
-      return this.getFurthestLeftValue(node.children![0]);
+      return this.getFurthestLeftNode(node.children![0]);
     }
   }
 
-  private getFurthestRightValue(node: IBTreeNode<T>): T|undefined {
+  private getFurthestRightNode(node: IBTreeNode<T>): IBTreeValueNode<T>|undefined {
     if (this.isLeafNode(node)) {
-      return node.items.length ? node.items[node.items.length - 1].value : undefined;
+      return node.items[node.items.length - 1];
     } else {
-      return this.getFurthestRightValue(node.children![node.children!.length - 1]);
+      return this.getFurthestRightNode(node.children![node.children!.length - 1]);
     }
   }
 
-  private getPreviousValue(parentPath: ParentPath<T>): T|undefined {
+  private getPreviousNode(parentPath: ParentPath<T>): IBTreeValueNode<T>|undefined {
     const containerInfo = parentPath[parentPath.length - 1];
 
     if (this.isLeafNode(containerInfo.node)) {
       if (containerInfo.index > 0) {
-        return containerInfo.node.items[containerInfo.index - 1].value;
+        return containerInfo.node.items[containerInfo.index - 1];
       }
 
       for (let i = parentPath.length - 2; i >= 0; i--) {
@@ -545,23 +545,23 @@ export class SortedCollectionAdapter<T> {
 
         const prev = parentInfo.node.items[parentInfo.index - 1];
         if (prev) {
-          return prev.value;
+          return prev;
         }
       }
 
       return;
     } else {
       const child = containerInfo.node.children![containerInfo.index];
-      return this.getFurthestRightValue(child);
+      return this.getFurthestRightNode(child);
     }
   }
 
-  private getNextValue(parentPath: ParentPath<T>): T|undefined {
+  private getNextNode(parentPath: ParentPath<T>): IBTreeValueNode<T>|undefined {
     const containerInfo = parentPath[parentPath.length - 1];
 
     if (this.isLeafNode(containerInfo.node)) {
       if (containerInfo.index < containerInfo.node.items.length - 1) {
-        return containerInfo.node.items[containerInfo.index + 1].value;
+        return containerInfo.node.items[containerInfo.index + 1];
       }
 
       for (let i = parentPath.length - 2; i >= 0; i--) {
@@ -569,14 +569,14 @@ export class SortedCollectionAdapter<T> {
 
         const next = parentInfo.node.items[parentInfo.index];
         if (next) {
-          return next.value;
+          return next;
         }
       }
 
       return;
     } else {
       const child = containerInfo.node.children![containerInfo.index + 1];
-      return this.getFurthestLeftValue(child);
+      return this.getFurthestLeftNode(child);
     }
   }
 

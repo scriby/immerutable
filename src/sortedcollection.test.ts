@@ -466,4 +466,33 @@ describe('B-tree', () => {
 
     expect(Array.from(iterable).length).toBeGreaterThan(0);
   });
+
+  describe('updates and undefined elements', () => {
+    it.each([
+      {values: [0, 1], from: 1, to: -1, expected: [-1, 0]},
+      {values: [-1, 0], from: -1, to: 1, expected: [0, 1]},
+    ])('reorders across a zero-valued neighbor: $values, $from -> $to', ({values, from, to, expected}) => {
+      const adapter = new SortedCollectionAdapter<number>({orderComparer: (a, b) => a - b});
+      const collection = adapter.create();
+      values.forEach(value => adapter.insert(collection, value));
+
+      adapter.update(collection, from, () => to);
+
+      expect(Array.from(adapter.getIterable(collection))).toEqual(expected);
+      expect(adapter.getFirst(collection)).toBe(expected[0]);
+      expect(adapter.getLast(collection)).toBe(expected[1]);
+    });
+
+    it.each(['forward', 'backward'] as const)('does not terminate %s iteration at an undefined element', direction => {
+      const adapter = new SortedCollectionAdapter<number | undefined>({
+        orderComparer: (a, b) => (a === undefined ? 0 : a) - (b === undefined ? 0 : b),
+      });
+      const collection = adapter.create();
+      [-1, undefined, 1].forEach(value => adapter.insert(collection, value));
+
+      const expected = direction === 'forward' ? [-1, undefined, 1] : [1, undefined, -1];
+      expect(Array.from(adapter.getIterable(collection, direction))).toEqual(expected);
+      expect(adapter.getSize(collection)).toBe(3);
+    });
+  });
 });

@@ -375,4 +375,134 @@ describe('Sorted map', () => {
       expect(readonlySet.size).toBe(20);
     });
   });
+
+  describe('falsy values and ordering keys', () => {
+    type Value = number | boolean | string | null | undefined;
+
+    it.each([0, false, '', null, undefined])('updates an existing falsy value: %s', value => {
+      const adapter = new SortedMapAdapter<string, Value>({getOrderingKey: () => 0});
+      const map = adapter.create();
+      adapter.set(map, 'key', value);
+      const updater = jest.fn(() => 'replacement');
+
+      adapter.update(map, 'key', updater);
+
+      expect(updater).toHaveBeenCalledWith(value);
+      expect(adapter.get(map, 'key')).toBe('replacement');
+    });
+
+    it.each([0, false, '', null, undefined])('overwrites an existing falsy value with set: %s', value => {
+      const adapter = new SortedMapAdapter<string, Value>({getOrderingKey: () => 0});
+      const map = adapter.create();
+      adapter.set(map, 'key', value);
+
+      adapter.set(map, 'key', 'replacement');
+
+      expect(adapter.get(map, 'key')).toBe('replacement');
+      expect(adapter.getSize(map)).toBe(1);
+    });
+
+    it('updates the sorted index when a replacement value is zero', () => {
+      const adapter = new SortedMapAdapter<string, number>({getOrderingKey: value => value});
+      const map = adapter.create();
+      adapter.set(map, 'a', 1);
+      adapter.set(map, 'b', 2);
+
+      const result = adapter.update(map, 'b', () => 0);
+
+      expect(Array.from(adapter.getIterable(map))).toEqual([['b', 0], ['a', 1]]);
+      expect(result).toBe(0);
+      adapter.remove(map, 'b');
+      expect(adapter.getSize(map)).toBe(1);
+      expect(Array.from(adapter.getIterable(map))).toEqual([['a', 1]]);
+    });
+
+    it('allows set to replace an existing value with undefined', () => {
+      const adapter = new SortedMapAdapter<string, number | undefined>({getOrderingKey: () => 0});
+      const map = adapter.create();
+      adapter.set(map, 'key', 1);
+
+      adapter.set(map, 'key', undefined);
+
+      expect(adapter.has(map, 'key')).toBe(true);
+      expect(adapter.get(map, 'key')).toBeUndefined();
+      expect(Array.from(adapter.getIterable(map))).toEqual([['key', undefined]]);
+    });
+
+    it('removes an entry whose stored value is undefined', () => {
+      const adapter = new SortedMapAdapter<string, number | undefined>({getOrderingKey: () => 0});
+      const map = adapter.create();
+      adapter.set(map, 'key', undefined);
+
+      adapter.remove(map, 'key');
+
+      expect(adapter.has(map, 'key')).toBe(false);
+      expect(adapter.getSize(map)).toBe(0);
+      expect(Array.from(adapter.getIterable(map))).toEqual([]);
+    });
+
+    it('reorders when an object-valued ordering key is mutated inside update', () => {
+      type Order = {rank: number};
+      const adapter = new SortedMapAdapter<string, {order: Order}, Order>({
+        getOrderingKey: value => value.order,
+        orderComparer: (a, b) => a.rank - b.rank,
+      });
+      const map = adapter.create();
+      adapter.set(map, 'a', {order: {rank: 1}});
+      adapter.set(map, 'b', {order: {rank: 2}});
+
+      adapter.update(map, 'a', value => { value.order.rank = 3; });
+
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual(['b', 'a']);
+      expect(adapter.getFirst(map)).toEqual({order: {rank: 2}});
+    });
+
+    // Finding 17: depends on finding 16 plus `===` key equality in the sorted index.
+    it('keeps one index entry for a NaN key and can remove it', () => {
+      const adapter = new SortedMapAdapter<number, number>({getOrderingKey: value => value});
+      const map = adapter.create();
+      adapter.set(map, NaN, 1);
+      adapter.set(map, NaN, 2);
+
+      expect(adapter.getSize(map)).toBe(1);
+      expect(Array.from(adapter.getIterable(map))).toEqual([[NaN, 2]]);
+
+      adapter.remove(map, NaN);
+
+      expect(adapter.has(map, NaN)).toBe(false);
+      expect(adapter.getSize(map)).toBe(0);
+      expect(Array.from(adapter.getIterable(map))).toEqual([]);
+    });
+  });
+
+  describe('readonly views after mutation or partial iteration', () => {
+    function setup() {
+      const adapter = new SortedMapAdapter<number, number>({getOrderingKey: value => value});
+      const map = adapter.create();
+      return {add: (key: number) => adapter.set(map, key, key),
+        map: adapter.asReadonlyMap(map), set: adapter.keysAsReadonlySet(map)};
+    }
+
+    it.each(['map', 'set'] as const)('reports the current size of the %s view after mutation', view => {
+      const fixture = setup();
+      fixture.add(1);
+
+      expect(fixture[view].has(1)).toBe(true);
+      expect(Array.from(fixture[view].values())).toEqual([1]);
+      expect(fixture[view].size).toBe(1);
+    });
+
+    it.each(['map', 'set'] as const)('resumes a partially consumed %s iterator instead of restarting it', view => {
+      const fixture = setup();
+      fixture.add(1);
+      fixture.add(2);
+      const expected = Array.from(fixture[view].values());
+      const iterator = fixture[view].values();
+      expect(iterator.next().value).toBe(expected[0]);
+
+      expect(Array.from(iterator)).toEqual(expected.slice(1));
+      expect(iterator[Symbol.iterator]()).toBe(iterator);
+      expect(iterator.next().done).toBe(true);
+    });
+  });
 });

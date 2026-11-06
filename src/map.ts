@@ -1,5 +1,13 @@
 import {hash} from './hash';
-import {iterableToIterableIterator, mapIterable} from './util';
+import {iterableToIterableIterator, mapIterable, sameValueZero} from './util';
+
+const hasOwn = Object.prototype.hasOwnProperty;
+
+// Immer 1.x cannot safely copy __proto__, and its ES5 descriptor cache inherits
+// Object.prototype names. Escape those names and the prefix itself.
+function bucketKey(key: Key): Key {
+  return typeof key === 'string' && (key.charCodeAt(0) === 0 || hasOwn.call(Object.prototype, key)) ? '\0' + key : key;
+}
 
 export interface IMap<K, V> {
   root: ITrieNode<K, V>,
@@ -68,28 +76,38 @@ export class MapAdapter<K extends Key, V> {
   /** Returns true if the map contains the key, false otherwise. */
   has(map: IMap<K, V>, key: K): boolean {
     const {valueNode, depth} = this.lookupValueNode(map, key);
-
     if (valueNode === undefined) return false;
-
     if (depth < this.maxDepth) {
-      return (valueNode as ISingleValueNode<K, V>).key === key;
-    } else {
-      return key in (valueNode as IMultiValueNode<K, V>).map;
+      const existingKey = (valueNode as ISingleValueNode<K, V>).key;
+      return existingKey === key || (existingKey !== existingKey && key !== key);
     }
+    return this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key) !== undefined;
   }
 
   /** Gets the value for the specified key. If the key does not exist, undefined is returned. */
   get(map: IMap<K, V>, key: K): V|undefined {
     const {valueNode, depth} = this.lookupValueNode(map, key);
+    if (valueNode === undefined) return;
+    if (depth < this.maxDepth) {
+      const entry = valueNode as ISingleValueNode<K, V>;
+      const existingKey = entry.key;
+      return existingKey === key || (existingKey !== existingKey && key !== key) ? entry.value : undefined;
+    }
+    const entry = this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key);
+    return entry && entry.value;
+  }
+
+  /** For adapter composition: presence must be independent of an undefined value. */
+  protected lookupEntry(map: IMap<K, V>, key: K): ISingleValueNode<K, V>|undefined {
+    const {valueNode, depth} = this.lookupValueNode(map, key);
 
     if (valueNode === undefined) return;
 
     if (depth < this.maxDepth) {
-      return (valueNode as ISingleValueNode<K, V>).key === key ? (valueNode as ISingleValueNode<K, V>).value : undefined;
+      const entry = valueNode as ISingleValueNode<K, V>;
+      return sameValueZero(entry.key, key) ? entry : undefined;
     } else {
-      const existing = (valueNode as IMultiValueNode<K, V>).map[key as any];
-
-      return existing && existing.value;
+      return this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key);
     }
   }
 
@@ -107,7 +125,7 @@ export class MapAdapter<K extends Key, V> {
         containingTrieNode[index] = this.createSingleValueNode(key, value);
       } else if (depth === this.maxDepth) {
         const newValueNode = containingTrieNode[index] = this.createValueNode();
-        newValueNode.map[key as Key] = this.createSingleValueNode(key, value);
+        newValueNode.map[bucketKey(key)] = this.createSingleValueNode(key, value);
       }
 
       return;
@@ -115,18 +133,18 @@ export class MapAdapter<K extends Key, V> {
 
     if (depth < this.maxDepth) {
       // item already exists in single value node.
-      if ((valueNode as ISingleValueNode<K, V>).key === key) {
+      if (sameValueZero((valueNode as ISingleValueNode<K, V>).key, key)) {
         (valueNode as ISingleValueNode<K, V>).value = value;
       } else {
         this.pushSingleValueNodeDown(containingTrieNode, index, depth);
         return this.set(map, key, value);
       }
     } else {
-      if (!(key in (valueNode as IMultiValueNode<K, V>).map)) {
+      const bucket = valueNode as IMultiValueNode<K, V>;
+      if (this.getBucketEntry(bucket, key) === undefined) {
         map.size++;
       }
-
-      (valueNode as IMultiValueNode<K, V>).map[key as Key] = this.createSingleValueNode(key, value);
+      bucket.map[bucketKey(key)] = this.createSingleValueNode(key, value);
     }
   }
 
@@ -138,10 +156,14 @@ export class MapAdapter<K extends Key, V> {
 
     if (valueNode) {
       if (depth < this.maxDepth) {
-        delete containingTrieNode[index];
+        if (!sameValueZero((valueNode as ISingleValueNode<K, V>).key, key)) return;
+        // ES5 Immer tracks indexed assignments, but can miss deletion of a
+        // sparse-array slot when the array's length does not change.
+        containingTrieNode[index] = undefined as any;
         map.size--;
-      } else if (key in (valueNode as IMultiValueNode<K, V>).map) {
-        delete (valueNode as IMultiValueNode<K, V>).map[key as Key];
+      } else if (this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key) !== undefined) {
+        const bucket = valueNode as IMultiValueNode<K, V>;
+        delete bucket.map[bucketKey(key)];
         map.size--;
       }
     }
@@ -167,6 +189,7 @@ export class MapAdapter<K extends Key, V> {
     if (valueNode === undefined) return;
 
     if (depth < this.maxDepth) {
+      if (!sameValueZero((valueNode as ISingleValueNode<K, V>).key, key)) return;
       const value = (valueNode as ISingleValueNode<K, V>).value;
       const retVal = updater(value) as V|undefined;
       if (retVal !== undefined) {
@@ -176,11 +199,13 @@ export class MapAdapter<K extends Key, V> {
         return value;
       }
     } else {
-      const existing = (valueNode as IMultiValueNode<K, V>).map[key as Key];
-      const value = existing && existing.value;
+      const bucket = valueNode as IMultiValueNode<K, V>;
+      const existing = this.getBucketEntry(bucket, key);
+      if (existing === undefined) return;
+      const value = existing.value;
       const retVal = updater(value) as V|undefined;
       if (retVal !== undefined) {
-        (valueNode as IMultiValueNode<K, V>).map[key as Key] = this.createSingleValueNode(key, retVal);
+        existing.value = retVal;
         return retVal;
       } else {
         return value;
@@ -242,7 +267,7 @@ export class MapAdapter<K extends Key, V> {
           if (Array.isArray(frame.content)) {
             if (frame.index < frame.content.length) {
               const child = frame.content[frame.index++];
-              if (child === undefined) {
+              if (child == null) {
                 return traverseToFurthestLeft(frame);
               }
 
@@ -261,7 +286,10 @@ export class MapAdapter<K extends Key, V> {
           } else {
             stack.pop();
             const multiValueNode = frame.content as IMultiValueNode<K, V>;
-            const nextContent = Object.keys(multiValueNode.map).map(key => multiValueNode.map[key]);
+            const nextContent: ISingleValueNode<K, V>[] = [];
+            for (const key of Object.keys(multiValueNode.map)) {
+              nextContent.push(multiValueNode.map[key]);
+            }
             const nextFrame = { content: nextContent, index: 0 };
             stack.push(nextFrame);
 
@@ -299,6 +327,7 @@ export class MapAdapter<K extends Key, V> {
   }
 
   asReadonlyMap(map: IMap<K, V>): ReadonlyMap<K, V> {
+    const adapter = this;
     const readonlyMap: ReadonlyMap<K, V> = {
       [Symbol.iterator]: () => iterableToIterableIterator(this.getIterable(map))[Symbol.iterator](),
       entries: () => iterableToIterableIterator(this.getIterable(map)),
@@ -314,13 +343,14 @@ export class MapAdapter<K extends Key, V> {
       },
       get: (key: K) => this.get(map, key),
       has: (key: K) => this.has(map, key),
-      size: this.getSize(map),
+      get size() { return adapter.getSize(map); },
     };
 
     return readonlyMap;
   }
 
   keysAsReadonlySet(map: IMap<K, V>): ReadonlySet<K> {
+    const adapter = this;
     const readonlySet: ReadonlySet<K> = {
       [Symbol.iterator]: () => iterableToIterableIterator(this.getKeysIterable(map))[Symbol.iterator](),
       entries: () => iterableToIterableIterator(mapIterable(this.getKeysIterable(map), (key) => [key, key] as [K, K])),
@@ -335,7 +365,7 @@ export class MapAdapter<K extends Key, V> {
         }
       },
       has: (key: K) =>  this.has(map, key),
-      size: this.getSize(map),
+      get size() { return adapter.getSize(map); },
     };
 
     return readonlySet;
@@ -355,6 +385,12 @@ export class MapAdapter<K extends Key, V> {
     };
   }
 
+  private getBucketEntry(bucket: IMultiValueNode<K, V>, key: K): ISingleValueNode<K, V>|undefined {
+    const property = bucketKey(key);
+    const entries = bucket.map;
+    return hasOwn.call(entries, property) ? entries[property] : undefined;
+  }
+
   private lookupValueNode(map: IMap<K, V>, key: K) {
     let hashCode = hash(key);
     let node: ITrieNode<K, V> = map.root;
@@ -367,7 +403,7 @@ export class MapAdapter<K extends Key, V> {
       depth++;
 
       let nextNode: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V> = node[index];
-      if (nextNode === undefined) {
+      if (nextNode == null) {
         valueNode = undefined;
         break;
       } else if (Array.isArray(nextNode)) {
@@ -388,7 +424,7 @@ export class MapAdapter<K extends Key, V> {
 
     if (depth === this.maxDepth - 1) {
       const newValueNode = newTrieNode[partialHash] = this.createValueNode();
-      newValueNode.map[singleValueNode.key as Key] = singleValueNode;
+      newValueNode.map[bucketKey(singleValueNode.key)] = singleValueNode;
     } else {
       newTrieNode[partialHash] = singleValueNode;
     }

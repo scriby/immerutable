@@ -22,6 +22,8 @@
   },
   "scripts": {
     "benchmark": "tsc && node --expose-gc dist/benchmark/benchmark.js",
+    "benchmark:review": "tsc && node --expose-gc dist/benchmark/review.js",
+    "benchmark:eviction": "tsc && node --expose-gc dist/benchmark/eviction.js",
     "benchmark-debug": "tsc && node --inspect-brk --expose-gc dist/benchmark/benchmark.js",
     "coverage": "jest src --coverage",
     "build": "rm -rf dist/* && tsc",

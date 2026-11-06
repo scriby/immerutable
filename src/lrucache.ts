@@ -11,6 +11,7 @@ interface LruWrapper<V> {
 }
 
 export class LruCacheAdapter<K extends Key, V> {
+  private evictionThreshold: number;
   private sortedMapAdapter = new SortedMapAdapter<K, LruWrapper<V>, number>({
     getOrderingKey: (item) => item.order
   });
@@ -18,9 +19,11 @@ export class LruCacheAdapter<K extends Key, V> {
   /**
    * Create a new LRU Cache adapter.
    * @param suggestedSize The max suggested # of entries for the LRU Cache to store. Up to 10% more than the provided
-   *                      number may be stored.
+   *                      number may be stored. A size of zero retains no entries.
    */
-  constructor(private suggestedSize: number) {}
+  constructor(private suggestedSize: number) {
+    this.evictionThreshold = Math.floor(suggestedSize * 1.1);
+  }
 
   create(): ILruCache<K, V> {
     return {
@@ -34,14 +37,14 @@ export class LruCacheAdapter<K extends Key, V> {
 
     // With Immer, it's more efficient to do multiple removals at once, so we store up to 10% extra entries
     // and then remove them all at once.
-    if (this.getSize(lru) > this.suggestedSize * 1.1) {
-      const iterable = this.sortedMapAdapter.getIterable(lru)[ Symbol.iterator ]();
-
-      do {
-        const oldestKey = iterable.next().value[0];
-
-        this.sortedMapAdapter.remove(lru, oldestKey);
-      } while (this.getSize(lru) > this.suggestedSize);
+    if (this.getSize(lru) > this.evictionThreshold) {
+      const count = this.getSize(lru) - Math.floor(this.suggestedSize);
+      const iterator = this.sortedMapAdapter.getKeysIterable(lru)[Symbol.iterator]();
+      const oldestKeys: K[] = [];
+      // Finish reading before deleting: rebalancing and shifting the B-tree
+      // invalidates a live iterator. Only allocate storage for the victims.
+      for (let i = 0; i < count; i++) oldestKeys.push(iterator.next().value);
+      for (const key of oldestKeys) this.sortedMapAdapter.remove(lru, key);
     }
   }
 
@@ -95,7 +98,7 @@ export class LruCacheAdapter<K extends Key, V> {
     const updated = this.sortedMapAdapter.update(lru, key, (item) => {
       const updated = updater(item.value);
 
-      if (updated) {
+      if (updated !== undefined) {
         item.value = updated;
       }
 
@@ -114,6 +117,7 @@ export class LruCacheAdapter<K extends Key, V> {
   }
 
   asReadonlyMap(lru: ILruCache<K, V>): ReadonlyMap<K, V> {
+    const adapter = this;
     const readonlyMap: ReadonlyMap<K, V> = {
       [Symbol.iterator]: () => iterableToIterableIterator(this.getIterable(lru))[Symbol.iterator](),
       entries: () => iterableToIterableIterator(this.getIterable(lru)),
@@ -129,13 +133,14 @@ export class LruCacheAdapter<K extends Key, V> {
       },
       get: (key: K) => this.peek(lru, key),
       has: (key: K) => this.has(lru, key),
-      size: this.getSize(lru),
+      get size() { return adapter.getSize(lru); },
     };
 
     return readonlyMap;
   }
 
   keysAsReadonlySet(lru: ILruCache<K, V>): ReadonlySet<K> {
+    const adapter = this;
     const readonlySet: ReadonlySet<K> = {
       [Symbol.iterator]: () => iterableToIterableIterator(this.getKeysIterable(lru))[Symbol.iterator](),
       entries: () => iterableToIterableIterator(mapIterable(this.getKeysIterable(lru), (key) => [key, key] as [K, K])),
@@ -150,7 +155,7 @@ export class LruCacheAdapter<K extends Key, V> {
         }
       },
       has: (key: K) =>  this.has(lru, key),
-      size: this.getSize(lru),
+      get size() { return adapter.getSize(lru); },
     };
 
     return readonlySet;

@@ -1,7 +1,6 @@
+import produce, {mutate, proxyModes, setUseProxies} from './test-support/immer';
 import * as hash from './hash';
 import {Key, MapAdapter} from './map';
-
-//TODO: size doesn't decrease when removing non-existent item
 
 describe('map', () => {
   const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
@@ -447,6 +446,189 @@ describe('map', () => {
 
     it('has the right size', () => {
       expect(readonlySet.size).toBe(9);
+    });
+  });
+
+  describe.each([false, true])('missing keys (Immer: %s)', useImmer => {
+    it('does not delete an existing entry when removing an absent key with the same hash prefix', () => {
+      const adapter = new MapAdapter<number, string>();
+      const original = adapter.create();
+      adapter.set(original, 1, 'one');
+
+      // 1 and 17 share the first four hash bits, but are different keys.
+      const result = mutate(original, useImmer, draft => adapter.remove(draft, 17));
+
+      expect(Array.from(adapter.getIterable(result))).toEqual([[1, 'one']]);
+      expect(adapter.getSize(result)).toBe(1);
+      if (useImmer) expect(result).toBe(original);
+    });
+
+    it('does not call the updater for an absent key sharing a single-value leaf', () => {
+      const adapter = new MapAdapter<number, string>();
+      const original = adapter.create();
+      adapter.set(original, 1, 'one');
+      const updater = jest.fn(() => 'changed');
+
+      const result = mutate(original, useImmer, draft => {
+        expect(adapter.update(draft, 17, updater)).toBeUndefined();
+      });
+
+      expect(updater).not.toHaveBeenCalled();
+      expect(Array.from(adapter.getIterable(result))).toEqual([[1, 'one']]);
+      if (useImmer) expect(result).toBe(original);
+    });
+
+    it('does not create an uncounted entry when updating an absent key in a collision bucket', () => {
+      const adapter = new MapAdapter<number, string>();
+      const original = adapter.create();
+      // The trie uses the low 28 bits before falling back to a collision bucket.
+      adapter.set(original, 1, 'one');
+      adapter.set(original, 1 + 2 ** 28, 'two');
+      const missing = 1 + 2 * 2 ** 28;
+      const updater = jest.fn(() => 'ghost');
+
+      const result = mutate(original, useImmer, draft => {
+        adapter.update(draft, missing, updater);
+      });
+
+      expect(adapter.has(result, missing)).toBe(false);
+      expect(updater).not.toHaveBeenCalled();
+      expect(Array.from(adapter.getIterable(result))).toHaveLength(2);
+      expect(adapter.getSize(result)).toBe(2);
+    });
+  });
+
+  describe('Map serialization and numeric keys', () => {
+    it('can iterate a JSON round-tripped map containing only JSON-safe keys and values', () => {
+      const adapter = new MapAdapter<number, string>();
+      const map = adapter.create();
+      adapter.set(map, 1, 'one');
+      const restored = JSON.parse(JSON.stringify(map)) as typeof map;
+
+      expect(Array.from(adapter.getIterable(restored))).toEqual([[1, 'one']]);
+    });
+
+    it('can query and insert into an empty hash slot after a JSON round trip', () => {
+      const adapter = new MapAdapter<number, string>();
+      const map = adapter.create();
+      adapter.set(map, 1, 'one');
+      const restored = JSON.parse(JSON.stringify(map)) as typeof map;
+
+      expect(adapter.has(restored, 0)).toBe(false);
+      expect(adapter.get(restored, 0)).toBeUndefined();
+      adapter.set(restored, 0, 'zero');
+      expect(adapter.get(restored, 0)).toBe('zero');
+      expect(adapter.getSize(restored)).toBe(2);
+    });
+
+    it('can retrieve a NaN numeric key immediately after inserting it', () => {
+      const adapter = new MapAdapter<number, string>();
+      const map = adapter.create();
+      adapter.set(map, NaN, 'not a number');
+
+      expect(adapter.has(map, NaN)).toBe(true);
+      expect(adapter.get(map, NaN)).toBe('not a number');
+      adapter.set(map, NaN, 'replacement');
+      expect(adapter.getSize(map)).toBe(1);
+      expect(Array.from(adapter.getIterable(map))).toEqual([[NaN, 'replacement']]);
+    });
+
+    it.each(['constructor', 'toString', '__proto__'])('does not invent the key %s in a JSON-restored collision bucket', key => {
+      const adapter = new MapAdapter<number | string, string>();
+      const map = adapter.create();
+      const prefix = hash.hash(key) & 0x0fffffff;
+      adapter.set(map, prefix, 'first');
+      adapter.set(map, prefix + 2 ** 28, 'second');
+      expect(adapter.has(map, key)).toBe(false);
+      const restored = JSON.parse(JSON.stringify(map)) as typeof map;
+
+      expect(adapter.has(restored, key)).toBe(false);
+      adapter.remove(restored, key);
+      expect(adapter.getSize(restored)).toBe(2);
+    });
+  });
+
+  // Finding 18: Immer 1.2.1 copies a bucket holding an own `__proto__` property
+  // into an ordinary object, turning that entry into the copy's prototype.
+  describe.each(proxyModes)('Map __proto__ key in a collision bucket (Immer proxies: %s)', useProxies => {
+    beforeEach(() => setUseProxies(useProxies));
+    afterEach(() => setUseProxies(true));
+
+    it('drafts every prototype-name value safely after JSON restoration', () => {
+      jest.spyOn(hash, 'hash').mockReturnValue(0);
+      const adapter = new MapAdapter<string, {items: number[]}>();
+      const keys = [...Object.getOwnPropertyNames(Object.prototype), '\0__proto__', '\0\0__proto__', '\0', 'ordinary'];
+      const map = adapter.create();
+      keys.forEach((key, index) => adapter.set(map, key, {items: [index]}));
+      const original = JSON.parse(JSON.stringify(map));
+      const before = JSON.stringify(original);
+
+      const updated = produce(original, (draft: typeof map) => {
+        keys.forEach(key => adapter.update(draft, key, value => { value.items.push(42); }));
+      });
+
+      keys.forEach((key, index) => {
+        expect(adapter.get(updated, key)).toEqual({items: [index, 42]});
+        expect(adapter.get(original, key)).toEqual({items: [index]});
+      });
+      expect(JSON.stringify(original)).toBe(before);
+      expect(Array.from(adapter.getIterable(updated))).toHaveLength(keys.length);
+      const empty = produce(updated, (draft: typeof map) => keys.forEach(key => adapter.remove(draft, key)));
+      expect(adapter.getSize(empty)).toBe(0);
+      expect(Array.from(adapter.getIterable(empty))).toEqual([]);
+      expect(adapter.getSize(updated)).toBe(keys.length);
+    });
+
+    it('keeps a __proto__ key when Immer copies its collision bucket', () => {
+      const adapter = new MapAdapter<number | string, string>();
+      const original = adapter.create();
+      const key = '__proto__';
+      const prefix = hash.hash(key) & 0x0fffffff;
+      adapter.set(original, prefix, 'first');
+      adapter.set(original, key, 'proto value');
+
+      const result = produce(original, draft => adapter.set(draft, prefix + 2 ** 28, 'third'));
+
+      expect(adapter.has(result, key)).toBe(true);
+      expect(adapter.get(result, key)).toBe('proto value');
+      expect(adapter.getSize(result)).toBe(3);
+      expect(Array.from(adapter.getIterable(result)).sort()).toEqual([
+        [key, 'proto value'],
+        [prefix, 'first'],
+        [prefix + 2 ** 28, 'third'],
+      ].sort());
+      expect(adapter.get(original, key)).toBe('proto value');
+    });
+  });
+
+  describe('readonly views after mutation or partial iteration', () => {
+    function setup() {
+      const adapter = new MapAdapter<number, number>();
+      const map = adapter.create();
+      return {add: (key: number) => adapter.set(map, key, key),
+        map: adapter.asReadonlyMap(map), set: adapter.keysAsReadonlySet(map)};
+    }
+
+    it.each(['map', 'set'] as const)('reports the current size of the %s view after mutation', view => {
+      const fixture = setup();
+      fixture.add(1);
+
+      expect(fixture[view].has(1)).toBe(true);
+      expect(Array.from(fixture[view].values())).toEqual([1]);
+      expect(fixture[view].size).toBe(1);
+    });
+
+    it.each(['map', 'set'] as const)('resumes a partially consumed %s iterator instead of restarting it', view => {
+      const fixture = setup();
+      fixture.add(1);
+      fixture.add(2);
+      const expected = Array.from(fixture[view].values());
+      const iterator = fixture[view].values();
+      expect(iterator.next().value).toBe(expected[0]);
+
+      expect(Array.from(iterator)).toEqual(expected.slice(1));
+      expect(iterator[Symbol.iterator]()).toBe(iterator);
+      expect(iterator.next().done).toBe(true);
     });
   });
 });

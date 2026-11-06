@@ -1,6 +1,6 @@
 import {IMap, MapAdapter} from './map';
-import {Comparer, ISortedCollection, SortedCollectionAdapter} from './sortedcollection';
-import {iterableToIterableIterator, mapIterable} from './util';
+import {Comparer, ISortedCollection, LookupNodeInfo, SortedCollectionAdapter} from './sortedcollection';
+import {iterableToIterableIterator, mapIterable, sameValueZero} from './util';
 
 export type Key = string | number;
 
@@ -16,9 +16,18 @@ export interface ISortedMap<K, V, O=any> {
 
 export type GetOrderingKey<V, O> = (value: V) => O;
 
+// Keep entry handles inside adapter composition rather than exposing them on
+// the public MapAdapter API. This avoids a second lookup to distinguish a
+// missing key from an existing undefined value (especially during insertion).
+class SortedMapStorageAdapter<K extends Key, V> extends MapAdapter<K, V> {
+  findEntry(map: IMap<K, V>, key: K) {
+    return this.lookupEntry(map, key);
+  }
+}
+
 export class SortedMapAdapter<K extends Key, V, O=any> {
   private getOrderingKey: GetOrderingKey<V, O>;
-  private mapAdapter = new MapAdapter<K, V>();
+  private mapAdapter = new SortedMapStorageAdapter<K, V>();
   private sortedCollectionAdapter: SortedCollectionAdapter<IKeyWithOrder<K, O>>;
 
   constructor(args: {
@@ -32,7 +41,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
       (a, b) => a.order < b.order ? -1 : a.order > b.order ? 1 : 0;
 
     this.sortedCollectionAdapter = new SortedCollectionAdapter({
-      equalityComparer: (a, b) => a.key === b.key,
+      equalityComparer: (a, b) => sameValueZero(a.key, b.key),
       orderComparer,
     });
   }
@@ -71,52 +80,67 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
   }
 
   set(sortedMap: ISortedMap<K, V, O>, key: K, value: V): void {
-    const exists = this.mapAdapter.has(sortedMap.map, key);
+    const existing = this.mapAdapter.findEntry(sortedMap.map, key);
 
-    if (!exists) {
+    if (existing === undefined) {
       this.sortedCollectionAdapter.insert(sortedMap.sortedCollection, { key, order: this.getOrderingKey(value) });
       this.mapAdapter.set(sortedMap.map, key, value);
     } else {
-      this.update(sortedMap, key, () => value);
+      const node = this.lookupSortedNode(sortedMap, key, existing.value);
+      // Assignment is unconditional, including undefined. It must not use the
+      // updater callback's undefined-means-no-replacement convention.
+      this.mapAdapter.set(sortedMap.map, key, value);
+      this.updateSortedOrder(sortedMap, node, value);
     }
   }
 
   remove(sortedMap: ISortedMap<K, V, O>, key: K): void {
-    const existing = this.mapAdapter.get(sortedMap.map, key);
+    const existing = this.mapAdapter.findEntry(sortedMap.map, key);
     if (existing === undefined) return;
 
-    this.sortedCollectionAdapter.remove(sortedMap.sortedCollection, { key: key, order: this.getOrderingKey(existing) });
+    this.sortedCollectionAdapter.remove(sortedMap.sortedCollection, { key: key, order: this.getOrderingKey(existing.value) });
     this.mapAdapter.remove(sortedMap.map, key);
   }
 
   update(sortedMap: ISortedMap<K, V, O>, key: K, updater: (item: V) => V|void): void|V {
-    const existing = this.mapAdapter.get(sortedMap.map, key);
-    if (!existing) return;
+    const existing = this.mapAdapter.findEntry(sortedMap.map, key);
+    if (existing === undefined) return;
 
+    const previousValue = existing.value;
+    const node = this.lookupSortedNode(sortedMap, key, previousValue);
+    const updated = updater(previousValue) as V|undefined;
+
+    if (updated !== undefined) {
+      this.mapAdapter.set(sortedMap.map, key, updated);
+    }
+
+    const value = updated === undefined ? previousValue : updated;
+    this.updateSortedOrder(sortedMap, node, value);
+    return value;
+  }
+
+  private lookupSortedNode(sortedMap: ISortedMap<K, V, O>, key: K, value: V): LookupNodeInfo<IKeyWithOrder<K, O>> {
     const existingSorted = this.sortedCollectionAdapter.lookupValuePath(
       sortedMap.sortedCollection,
-      { key, order: this.getOrderingKey(existing) },
+      { key, order: this.getOrderingKey(value) },
     );
 
     if (existingSorted === undefined) {
       throw new Error(`Key ${key} not found in sorted collection`);
     }
 
-    const updated = updater(existing) as V|undefined;
+    return existingSorted;
+  }
 
-    if (updated !== undefined) {
-      this.mapAdapter.set(sortedMap.map, key, updated);
+  private updateSortedOrder(sortedMap: ISortedMap<K, V, O>, node: LookupNodeInfo<IKeyWithOrder<K, O>>, value: V): void {
+    const order = this.getOrderingKey(value);
+    const changed = !sameValueZero(node.valueNode.value.order, order);
+    if (changed) node.valueNode.value.order = order;
+    // A mutable ordering object can change in place without changing identity.
+    // Primitive keys retain the no-reordering fast path.
+    if (changed || (order !== null && (typeof order === 'object' || typeof order === 'function'))) {
+      this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedMap.sortedCollection, node);
     }
-
-    const updatedOrExisting = updated || existing;
-    const updatedOrderingKey = this.getOrderingKey(updatedOrExisting);
-
-    if (existingSorted.valueNode.value.order !== updatedOrderingKey) {
-      existingSorted.valueNode.value.order = updatedOrderingKey;
-      this.sortedCollectionAdapter.ensureSortedOrderOfNode(sortedMap.sortedCollection, existingSorted);
-    }
-
-    return updatedOrExisting;
   }
 
   getSize(sortedMap: ISortedMap<K, V, O>): number {
@@ -140,6 +164,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
   }
 
   asReadonlyMap(sortedMap: ISortedMap<K, V, O>): ReadonlyMap<K, V> {
+    const adapter = this;
     const readonlyMap: ReadonlyMap<K, V> = {
       [Symbol.iterator]: () => iterableToIterableIterator(this.getIterable(sortedMap))[Symbol.iterator](),
       entries: () => iterableToIterableIterator(this.getIterable(sortedMap)),
@@ -155,13 +180,14 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
       },
       get: (key: K) => this.get(sortedMap, key),
       has: (key: K) => this.has(sortedMap, key),
-      size: this.getSize(sortedMap),
+      get size() { return adapter.getSize(sortedMap); },
     };
 
     return readonlyMap;
   }
 
   keysAsReadonlySet(sortedMap: ISortedMap<K, V, O>): ReadonlySet<K> {
+    const adapter = this;
     const readonlySet: ReadonlySet<K> = {
       [Symbol.iterator]: () => iterableToIterableIterator(this.getKeysIterable(sortedMap))[Symbol.iterator](),
       entries: () => iterableToIterableIterator(mapIterable(this.getKeysIterable(sortedMap), (key) => [key, key] as [K, K])),
@@ -176,7 +202,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
         }
       },
       has: (key: K) => this.has(sortedMap, key),
-      size: this.getSize(sortedMap),
+      get size() { return adapter.getSize(sortedMap); },
     };
 
     return readonlySet;
