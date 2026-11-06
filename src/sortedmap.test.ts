@@ -1,3 +1,4 @@
+import produce from './test-support/immer';
 import {SortedMapAdapter} from './sortedmap';
 
 interface TestObject {
@@ -503,6 +504,87 @@ describe('Sorted map', () => {
       expect(Array.from(iterator)).toEqual(expected.slice(1));
       expect(iterator[Symbol.iterator]()).toBe(iterator);
       expect(iterator.next().done).toBe(true);
+    });
+  });
+
+  describe('removing and re-adding a key in one produce', () => {
+    it('keeps the backing map and sorted index in agreement', () => {
+      // 1 and 2^28 + 1 share the low 28 hash bits, so the backing map stores
+      // them in one collision bucket.
+      const adapter = new SortedMapAdapter<number, TestObject>({getOrderingKey});
+      const original = produce(adapter.create(), draft => {
+        adapter.set(draft, 1, {data: 'old', order: 1});
+        adapter.set(draft, 1 + (1 << 28), {data: 'neighbor', order: 2});
+      });
+
+      const result = produce(original, draft => {
+        adapter.remove(draft, 1);
+        adapter.set(draft, 1, {data: 'new', order: 3});
+      });
+
+      expect(Array.from(adapter.getIterable(result))).toEqual([
+        [1 + (1 << 28), {data: 'neighbor', order: 2}],
+        [1, {data: 'new', order: 3}],
+      ]);
+    });
+  });
+
+  describe('undefined ordering keys with the default comparer', () => {
+    // An optional ordering field yields undefined, which the default comparer
+    // treats as equal to every value. That breaks the B-tree's ordering, and a
+    // later lookup misses an entry. remove() then deletes only the map half.
+    it('keeps the backing map and sorted index in agreement after removal', () => {
+      const adapter = new SortedMapAdapter<string, {order?: number}>({getOrderingKey: value => value.order});
+      const sortedMap = adapter.create();
+      adapter.set(sortedMap, 'a', {order: 1});
+      adapter.set(sortedMap, 'b', {order: 3});
+      adapter.set(sortedMap, 'missing', {});
+      adapter.set(sortedMap, 'c', {order: 2});
+
+      adapter.remove(sortedMap, 'c');
+
+      expect(adapter.has(sortedMap, 'c')).toBe(false);
+      expect(adapter.getSize(sortedMap)).toBe(3);
+      expect(Array.from(adapter.getKeysIterable(sortedMap))).not.toContain('c');
+    });
+
+    it('iterates the defined ordering keys in sorted order', () => {
+      const adapter = new SortedMapAdapter<string, {order?: number}>({getOrderingKey: value => value.order});
+      const sortedMap = adapter.create();
+      adapter.set(sortedMap, 'a', {order: 1});
+      adapter.set(sortedMap, 'b', {order: 3});
+      adapter.set(sortedMap, 'missing', {});
+      adapter.set(sortedMap, 'c', {order: 2});
+
+      const defined = Array.from(adapter.getKeysIterable(sortedMap)).filter(key => key !== 'missing');
+      expect(defined).toEqual(['a', 'c', 'b']);
+    });
+
+    it.each([undefined, NaN])('sorts the unordered key %s after every ordered key', unordered => {
+      const adapter = new SortedMapAdapter<string, number | undefined>({getOrderingKey: value => value});
+      const sortedMap = adapter.create();
+      adapter.set(sortedMap, 'x', unordered);
+      adapter.set(sortedMap, 'b', 2);
+      adapter.set(sortedMap, 'a', 1);
+
+      expect(Array.from(adapter.getKeysIterable(sortedMap))).toEqual(['a', 'b', 'x']);
+      adapter.remove(sortedMap, 'x');
+      expect(Array.from(adapter.getKeysIterable(sortedMap))).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('removal when the sorted index cannot find the entry', () => {
+    it('throws without removing only the map half', () => {
+      const adapter = new SortedMapAdapter<string, TestObject>({getOrderingKey});
+      const sortedMap = adapter.create();
+      const stale = {data: 'stale', order: 1};
+      adapter.set(sortedMap, 'stale', stale);
+      adapter.set(sortedMap, 'other', {data: 'other', order: 2});
+      stale.order = 99; // Changed outside update(), so the index still holds order 1.
+
+      expect(() => adapter.remove(sortedMap, 'stale')).toThrow('not found in sorted collection');
+      expect(adapter.get(sortedMap, 'stale')).toBe(stale);
+      expect(adapter.getSize(sortedMap)).toBe(2);
     });
   });
 });

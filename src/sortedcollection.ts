@@ -89,7 +89,11 @@ export class SortedCollectionAdapter<T> {
     return collection.size;
   }
 
-  update(collection: ISortedCollection<T>, value: T, updater: (item: T) => T|void|undefined): void|T {
+  /**
+   * Updates an item using an updater function, which may mutate the item or return a replacement.
+   * Returns the current item (the replacement, if one was returned), or undefined if the item was not found.
+   */
+  update(collection: ISortedCollection<T>, value: T, updater: (item: T) => T|void|undefined): T|undefined {
     const existing = this._lookupValuePath(collection.root, value);
     if (!existing) return;
 
@@ -104,7 +108,7 @@ export class SortedCollectionAdapter<T> {
 
     this.ensureSortedOrderOfNode(collection, existing);
 
-    return updated;
+    return updated === undefined ? existing.valueNode.value : updated;
   }
 
   /**
@@ -619,6 +623,13 @@ export class SortedCollectionAdapter<T> {
         return { valueNode: node.items[prev], parentPath: parentPath.concat({ node, index: prev }) };
       }
 
+      // children[prev] lies left of items[prev], so it can only hold a match
+      // when items[prev] ties with the value. Descending without this check
+      // makes a miss visit O(2^height) nodes.
+      if (!prevNode || this.orderComparer(value, prevNode.value) !== 0) {
+        break;
+      }
+
       if (node.children !== undefined) {
         const prevChild = node.children[prev];
         if (!prevChild) break;
@@ -627,10 +638,6 @@ export class SortedCollectionAdapter<T> {
         if (subtreeResult !== undefined) {
           return subtreeResult;
         }
-      }
-
-      if (!prevNode || this.orderComparer(value, prevNode.value) !== 0) {
-        break;
       }
     }
 

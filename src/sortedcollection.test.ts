@@ -495,4 +495,64 @@ describe('B-tree', () => {
       expect(adapter.getSize(collection)).toBe(3);
     });
   });
+
+  describe('update return value', () => {
+    // MapAdapter.update and SortedMapAdapter.update return the current value
+    // when the updater mutates in place. The README's sorted collection example
+    // relies on that: it passes update's result straight to remove().
+    it('returns the item when the updater mutates it in place', () => {
+      const adapter = new SortedCollectionAdapter<TestObject>({
+        orderComparer: (a, b) => a.order - b.order,
+        equalityComparer: (a, b) => a.key === b.key,
+      });
+      const collection = adapter.create();
+      const item = {key: 'a', order: 1};
+      adapter.insert(collection, item);
+
+      const updated = adapter.update(collection, item, existing => { existing.order = 2; });
+
+      expect(updated).toBe(item);
+    });
+
+    it('supports the README flow of removing the value returned by update', () => {
+      const adapter = new SortedCollectionAdapter<TestObject>({
+        orderComparer: (a, b) => a.order - b.order,
+        equalityComparer: (a, b) => a.key === b.key,
+      });
+      const collection = adapter.create();
+      const item = {key: 'a', order: 1};
+      adapter.insert(collection, item);
+
+      const updated = adapter.update(collection, item, existing => { existing.order = 2; });
+      adapter.remove(collection, updated as TestObject);
+
+      expect(adapter.getSize(collection)).toBe(0);
+    });
+  });
+
+  describe('lookup cost for absent values', () => {
+    // Lookup's backward scan descends into children[index - 1] before checking
+    // whether items[index - 1] can still match. That subtree lies wholly below
+    // the value, and the same happens at every level, so a miss visits
+    // O(2^height) nodes instead of one root-to-leaf path.
+    it.each([
+      {maxItemsPerLevel: 4, size: 4096},
+      {maxItemsPerLevel: 8, size: 50000},
+    ])('stays logarithmic with $size items and maxItemsPerLevel $maxItemsPerLevel', ({maxItemsPerLevel, size}) => {
+      let comparisons = 0;
+      const adapter = new SortedCollectionAdapter<number>({
+        orderComparer: (a, b) => { comparisons++; return a - b; },
+        maxItemsPerLevel,
+      });
+      const collection = adapter.create();
+      for (let i = 0; i < size; i++) adapter.insert(collection, i * 2);
+
+      comparisons = 0;
+      adapter.remove(collection, size + 1); // odd values are never present
+
+      // A root-to-leaf search needs about log2(size) comparisons; allow 4x.
+      expect(comparisons).toBeLessThanOrEqual(4 * Math.ceil(Math.log2(size)));
+      expect(adapter.getSize(collection)).toBe(size);
+    });
+  });
 });

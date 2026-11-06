@@ -165,17 +165,17 @@ const size = adapter.getSize(map);
 
 // Iterate through the map items (order is not guaranteed).
 // With iterator downleveling (setting in tsconfig) or ES6:
-for (const {key, value} of adapter.getIterable(map)) {
+for (const [key, value] of adapter.getIterable(map)) {
   console.log(key, value);
 }
 
 // Without iterator downleveling:
 const iterable = adapter.getIterable(map);
 const iterator = iterable[Symbol.iterator](); // May need Symbol.iterator polyfill
-let next: TestObject;
+let next: IteratorResult<[number, TestObject]>;
 
 while (!(next = iterator.next()).done) {
-  const {key, value} = next.value;
+  const [key, value] = next.value;
   console.log(key, value);
 }
 
@@ -290,7 +290,7 @@ const last = adapter.getLast(sortedMap);
 
 // Iterate through the map items in sorted order.
 // With iterator downleveling (setting in tsconfig) or ES6:
-for (const {key, value} of adapter.getIterable(sortedMap)) {
+for (const [key, value] of adapter.getIterable(sortedMap)) {
   console.log(key, value);
 }
 

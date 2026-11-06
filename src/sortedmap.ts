@@ -16,6 +16,16 @@ export interface ISortedMap<K, V, O=any> {
 
 export type GetOrderingKey<V, O> = (value: V) => O;
 
+// Relational operators treat undefined and NaN as equal to every value, which
+// is not a consistent ordering and corrupts the B-tree. Sort them last instead,
+// as Array.prototype.sort does with undefined.
+function defaultOrderComparer(a: any, b: any): number {
+  const aUnordered = a === undefined || a !== a;
+  const bUnordered = b === undefined || b !== b;
+  if (aUnordered || bUnordered) return aUnordered === bUnordered ? 0 : aUnordered ? 1 : -1;
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 // Keep entry handles inside adapter composition rather than exposing them on
 // the public MapAdapter API. This avoids a second lookup to distinguish a
 // missing key from an existing undefined value (especially during insertion).
@@ -38,7 +48,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
 
     const orderComparer: Comparer<IKeyWithOrder<K, O>> = args.orderComparer ?
       (a, b) => args.orderComparer!(a.order, b.order) :
-      (a, b) => a.order < b.order ? -1 : a.order > b.order ? 1 : 0;
+      (a, b) => defaultOrderComparer(a.order, b.order);
 
     this.sortedCollectionAdapter = new SortedCollectionAdapter({
       equalityComparer: (a, b) => sameValueZero(a.key, b.key),
@@ -98,7 +108,12 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
     const existing = this.mapAdapter.findEntry(sortedMap.map, key);
     if (existing === undefined) return;
 
+    const sizeBefore = this.getSize(sortedMap);
     this.sortedCollectionAdapter.remove(sortedMap.sortedCollection, { key: key, order: this.getOrderingKey(existing.value) });
+    // Like set and update, refuse to leave the map and sorted index out of step.
+    if (this.getSize(sortedMap) === sizeBefore) {
+      throw new Error(`Key ${key} not found in sorted collection`);
+    }
     this.mapAdapter.remove(sortedMap.map, key);
   }
 

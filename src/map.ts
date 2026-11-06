@@ -9,6 +9,14 @@ function bucketKey(key: Key): Key {
   return typeof key === 'string' && (key.charCodeAt(0) === 0 || hasOwn.call(Object.prototype, key)) ? '\0' + key : key;
 }
 
+// A number and its decimal string (1.5 and '1.5') share a bucket property name.
+// When both are in one bucket, whichever arrives second uses this secondary
+// name. It cannot clash with an escaped name: decimal strings never begin with
+// NUL and are never Object.prototype names.
+function twinBucketKey(key: Key): string {
+  return '\0' + key;
+}
+
 export interface IMap<K, V> {
   root: ITrieNode<K, V>,
   size: number;
@@ -141,10 +149,13 @@ export class MapAdapter<K extends Key, V> {
       }
     } else {
       const bucket = valueNode as IMultiValueNode<K, V>;
-      if (this.getBucketEntry(bucket, key) === undefined) {
+      let property = this.findBucketProperty(bucket, key);
+      if (property === undefined) {
         map.size++;
+        // A miss with the primary name occupied means the other twin holds it.
+        property = hasOwn.call(bucket.map, bucketKey(key)) ? twinBucketKey(key) : bucketKey(key);
       }
-      bucket.map[bucketKey(key)] = this.createSingleValueNode(key, value);
+      bucket.map[property] = this.createSingleValueNode(key, value);
     }
   }
 
@@ -161,10 +172,20 @@ export class MapAdapter<K extends Key, V> {
         // sparse-array slot when the array's length does not change.
         containingTrieNode[index] = undefined as any;
         map.size--;
-      } else if (this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key) !== undefined) {
+      } else {
         const bucket = valueNode as IMultiValueNode<K, V>;
-        delete bucket.map[bucketKey(key)];
+        const property = this.findBucketProperty(bucket, key);
+        if (property === undefined) return;
+        delete bucket.map[property];
         map.size--;
+        // Promote a waiting twin into the primary name (see findBucketProperty).
+        if (property === bucketKey(key)) {
+          const twin = twinBucketKey(key);
+          if (hasOwn.call(bucket.map, twin)) {
+            bucket.map[property] = bucket.map[twin];
+            delete bucket.map[twin];
+          }
+        }
       }
     }
   }
@@ -232,7 +253,7 @@ export class MapAdapter<K extends Key, V> {
    * const adapter = new MapAdapter<string, T>();
    * ...
    *
-   * for ({key, value} of adapter.getIterable(map)) {
+   * for (const [key, value] of adapter.getIterable(map)) {
    *   console.log(key, value);
    * }
    * ```
@@ -244,9 +265,9 @@ export class MapAdapter<K extends Key, V> {
    *
    * const iterable = adapter.getIterable(map);
    * const iterator = iterable[Symbol.iterator](); // May need Symbol.iterator polyfill
-   * let next: T;
+   * let next: IteratorResult<[string, T]>;
    * while (!(next = iterator.next()).done) {
-   *   const {key, value} = next.value;
+   *   const [key, value] = next.value;
    *   console.log(key, value);
    * }
    * ```
@@ -261,45 +282,40 @@ export class MapAdapter<K extends Key, V> {
       [Symbol.iterator]: () => {
         const stack: Frame[] = [{ index: 0, content: map.root }];
 
-        const traverseToFurthestLeft = (frame: Frame): ISingleValueNode<K, V>|undefined => {
-          if (frame === undefined) return undefined;
+        // Iterative, so the number of empty slots skipped cannot exhaust the stack.
+        const nextEntry = (): ISingleValueNode<K, V>|undefined => {
+          while (stack.length > 0) {
+            const frame = stack[stack.length - 1];
+            const content = frame.content;
 
-          if (Array.isArray(frame.content)) {
-            if (frame.index < frame.content.length) {
-              const child = frame.content[frame.index++];
-              if (child == null) {
-                return traverseToFurthestLeft(frame);
+            if (Array.isArray(content)) {
+              if (frame.index < content.length) {
+                const child = content[frame.index++];
+                if (child != null) stack.push({ content: child, index: 0 });
+              } else {
+                stack.pop();
               }
-
-              const nextFrame = { content: child, index: 0 };
-              stack.push(nextFrame);
-              return traverseToFurthestLeft(nextFrame);
+            } else if ('key' in content) {
+              // Test the key: JSON drops an undefined value, leaving only {key}.
+              stack.pop();
+              return content as ISingleValueNode<K, V>;
             } else {
               stack.pop();
-
-              return traverseToFurthestLeft(stack[stack.length - 1]);
+              const entries = (content as IMultiValueNode<K, V>).map;
+              const bucketEntries: ISingleValueNode<K, V>[] = [];
+              for (const property of Object.keys(entries)) {
+                bucketEntries.push(entries[property]);
+              }
+              stack.push({ content: bucketEntries, index: 0 });
             }
-          } else if ('value' in frame.content) {
-            stack.pop();
-
-            return frame.content as ISingleValueNode<K, V>;
-          } else {
-            stack.pop();
-            const multiValueNode = frame.content as IMultiValueNode<K, V>;
-            const nextContent: ISingleValueNode<K, V>[] = [];
-            for (const key of Object.keys(multiValueNode.map)) {
-              nextContent.push(multiValueNode.map[key]);
-            }
-            const nextFrame = { content: nextContent, index: 0 };
-            stack.push(nextFrame);
-
-            return traverseToFurthestLeft(nextFrame);
           }
+
+          return undefined;
         };
 
         return {
           next: () => {
-            const value = traverseToFurthestLeft(stack[stack.length - 1]);
+            const value = nextEntry();
 
             if (value !== undefined) {
               return {
@@ -386,9 +402,20 @@ export class MapAdapter<K extends Key, V> {
   }
 
   private getBucketEntry(bucket: IMultiValueNode<K, V>, key: K): ISingleValueNode<K, V>|undefined {
-    const property = bucketKey(key);
+    const property = this.findBucketProperty(bucket, key);
+    return property === undefined ? undefined : bucket.map[property];
+  }
+
+  /** Returns the bucket property holding the entry for key, or undefined if it is absent. */
+  private findBucketProperty(bucket: IMultiValueNode<K, V>, key: K): Key|undefined {
     const entries = bucket.map;
-    return hasOwn.call(entries, property) ? entries[property] : undefined;
+    const property = bucketKey(key);
+    // The twin name is only occupied while the primary name holds the other
+    // twin (remove promotes it), so an empty primary name means a miss.
+    if (!hasOwn.call(entries, property)) return undefined;
+    if (sameValueZero(entries[property].key, key)) return property;
+    const twin = twinBucketKey(key);
+    return hasOwn.call(entries, twin) ? twin : undefined;
   }
 
   private lookupValueNode(map: IMap<K, V>, key: K) {

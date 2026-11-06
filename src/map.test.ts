@@ -1,6 +1,6 @@
 import produce, {mutate, proxyModes, setUseProxies} from './test-support/immer';
 import * as hash from './hash';
-import {Key, MapAdapter} from './map';
+import {IMap, Key, MapAdapter} from './map';
 
 describe('map', () => {
   const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
@@ -629,6 +629,183 @@ describe('map', () => {
       expect(Array.from(iterator)).toEqual(expected.slice(1));
       expect(iterator[Symbol.iterator]()).toBe(iterator);
       expect(iterator.next().done).toBe(true);
+    });
+  });
+
+  describe('collision buckets with mixed key types', () => {
+    // All three keys share the low 28 hash bits, so they are stored in one
+    // collision bucket. The number's decimal string equals the string key, and
+    // buckets index entries by property name.
+    const numberKey = 19664502.25;
+    const stringKey = '19664502.25';
+    const bucketNeighbor = 268435430;
+
+    it('uses real hashes that place the keys in one bucket', () => {
+      const low28 = (key: Key) => hash.hash(key) & 0xfffffff;
+      expect(low28(stringKey)).toBe(low28(numberKey));
+      expect(low28(bucketNeighbor)).toBe(low28(numberKey));
+    });
+
+    it('keeps a number key and its decimal-string twin as separate entries', () => {
+      const adapter = new MapAdapter<Key, string>();
+      const map = adapter.create();
+
+      adapter.set(map, numberKey, 'number');
+      adapter.set(map, stringKey, 'string');
+
+      expect(adapter.getSize(map)).toBe(2);
+      expect(adapter.get(map, numberKey)).toBe('number');
+      expect(adapter.get(map, stringKey)).toBe('string');
+      expect(Array.from(adapter.getIterable(map))).toHaveLength(2);
+    });
+
+    it('does not find, update or remove a number entry through its string twin', () => {
+      const adapter = new MapAdapter<Key, string>();
+      const map = adapter.create();
+      adapter.set(map, numberKey, 'number');
+      adapter.set(map, bucketNeighbor, 'neighbor');
+      const updater = jest.fn(() => 'changed');
+
+      expect(adapter.has(map, stringKey)).toBe(false);
+      expect(adapter.get(map, stringKey)).toBeUndefined();
+      expect(adapter.update(map, stringKey, updater)).toBeUndefined();
+      adapter.remove(map, stringKey);
+
+      expect(updater).not.toHaveBeenCalled();
+      expect(adapter.get(map, numberKey)).toBe('number');
+      expect(adapter.getSize(map)).toBe(2);
+    });
+
+    it.each([
+      {first: numberKey, second: stringKey},
+      {first: stringKey, second: numberKey},
+    ])('keeps both twins through removal, re-insertion and JSON ($first first)', ({first, second}) => {
+      const adapter = new MapAdapter<Key, string>();
+      let map = adapter.create();
+      adapter.set(map, first, 'first');
+      adapter.set(map, second, 'second');
+
+      adapter.remove(map, first);
+      expect(adapter.has(map, first)).toBe(false);
+      expect(adapter.get(map, second)).toBe('second');
+
+      adapter.set(map, first, 'again');
+      map = JSON.parse(JSON.stringify(map));
+
+      expect(adapter.getSize(map)).toBe(2);
+      expect(adapter.get(map, first)).toBe('again');
+      expect(adapter.get(map, second)).toBe('second');
+      expect(Array.from(adapter.getIterable(map))).toEqual(expect.arrayContaining([[first, 'again'], [second, 'second']]));
+      adapter.update(map, second, () => 'updated');
+      expect(adapter.get(map, second)).toBe('updated');
+      expect(adapter.get(map, first)).toBe('again');
+
+      // `first` now occupies the secondary name; removing it leaves `second`.
+      adapter.remove(map, first);
+      expect(adapter.has(map, first)).toBe(false);
+      expect(adapter.get(map, second)).toBe('updated');
+      expect(adapter.getSize(map)).toBe(1);
+    });
+  });
+
+  describe('JSON round trip of undefined values', () => {
+    // JSON drops `value: undefined`, leaving `{key}`. Iteration must still
+    // recognize that object as an entry rather than a collision bucket.
+    it.each([
+      {placement: 'a single-value leaf', keys: [1, 2]},
+      {placement: 'a collision bucket', keys: [1, 1 + (1 << 28)]},
+    ])('iterates an undefined value stored in $placement', ({keys}) => {
+      const adapter = new MapAdapter<number, string | undefined>();
+      const map = adapter.create();
+      adapter.set(map, keys[0], undefined);
+      adapter.set(map, keys[1], 'defined');
+
+      const restored = JSON.parse(JSON.stringify(map));
+
+      expect(Array.from(adapter.getIterable(restored))).toEqual(expect.arrayContaining([
+        [keys[0], undefined],
+        [keys[1], 'defined'],
+      ]));
+      expect(adapter.has(restored, keys[0])).toBe(true);
+    });
+  });
+
+  describe('removing and re-adding a bucket key in one produce', () => {
+    it.each([
+      {kind: 'number', keys: [1, 1 + (1 << 28)] as Key[]},
+      {kind: 'string', keys: ['Aa', 'BB'] as Key[]},
+    ])('keeps the new value for a $kind key', ({keys}) => {
+      const adapter = new MapAdapter<Key, string>();
+      const original = produce(adapter.create(), draft => {
+        adapter.set(draft, keys[0], 'first');
+        adapter.set(draft, keys[1], 'second');
+      });
+      const target = keys[keys.length - 1];
+
+      const result = produce(original, draft => {
+        adapter.remove(draft, target);
+        adapter.set(draft, target, 'replacement');
+      });
+
+      expect(adapter.get(result, target)).toBe('replacement');
+      expect(adapter.get(original, target)).toBe('second');
+      expect(adapter.getSize(result)).toBe(2);
+    });
+  });
+
+  describe('iterating after most keys were removed', () => {
+    // Removing every key not divisible by 10 empties whole subtrees (every odd
+    // root slot, for example). The iterator must skip them without using stack
+    // proportional to the number of empty slots.
+    it('iterates the remaining keys of a large sparse map', () => {
+      const adapter = new MapAdapter<number, number>();
+      const map = adapter.create();
+      for (let i = 0; i < 100000; i++) adapter.set(map, i, i);
+      for (let i = 0; i < 100000; i++) if (i % 10) adapter.remove(map, i);
+
+      const keys = Array.from(adapter.getKeysIterable(map)).sort((a, b) => a - b);
+
+      expect(keys).toHaveLength(10000);
+      expect(keys).toEqual(range(0, 9999).map(i => i * 10));
+    });
+  });
+
+  describe('repeated removal from one collision bucket', () => {
+    // 'Aa' and 'BB' have the same hash and length, so every 14-pair string
+    // built from them shares one hash (2^14 distinct colliding keys).
+    const collidingKey = (bits: number) => {
+      let key = '';
+      for (let i = 0; i < 14; i++) key += bits & (1 << i) ? 'BB' : 'Aa';
+      return key;
+    };
+    const churn = (adapter: MapAdapter<string, number>, map: IMap<string, number>) => {
+      adapter.set(map, collidingKey(0), 0);
+      for (let i = 1; i < 12000; i++) {
+        adapter.set(map, collidingKey(i), i);
+        adapter.remove(map, collidingKey(i));
+      }
+    };
+    const expectBounded = (adapter: MapAdapter<string, number>, map: IMap<string, number>) => {
+      expect(Array.from(adapter.getIterable(map))).toEqual([[collidingKey(0), 0]]);
+      expect(adapter.getSize(map)).toBe(1);
+      // Removed keys must not be retained in the stored structure.
+      const storedEntries = (node: any): number => Array.isArray(node)
+        ? node.reduce((count: number, child: any) => count + (child == null ? 0 : storedEntries(child)), 0)
+        : 'key' in node ? 1 : Object.keys(node.map).length;
+      expect(storedEntries(map.root)).toBe(1);
+    };
+
+    it('does not retain removed keys or overflow the stack when iterating', () => {
+      const adapter = new MapAdapter<string, number>();
+      const map = adapter.create();
+      churn(adapter, map);
+      expectBounded(adapter, map);
+    });
+
+    it('does the same within one produce', () => {
+      const adapter = new MapAdapter<string, number>();
+      const map = produce(adapter.create(), draft => churn(adapter, draft));
+      expectBounded(adapter, map);
     });
   });
 });

@@ -17,5 +17,21 @@
 - Keep readonly view sizes current. Iterators now follow the standard single-use
   protocol: looping twice over the same `entries()`/`keys()`/`values()` result no
   longer restarts it. Request a new iterator or iterate the view again to restart.
+- Keep a number key and its decimal-string twin (`1.5` and `'1.5'`) as separate
+  entries when they share a collision bucket. Existing bucket storage is read
+  unchanged; the twin that arrives second uses a secondary property name.
+- Iterate maps without recursing per skipped slot. Iterating a large map after
+  removing most of its keys could previously overflow the stack.
+- Iterate JSON round-tripped maps containing undefined values.
+- Sort undefined and NaN ordering keys last with the sorted map's default
+  comparer instead of treating them as equal to every key. Sorted map `remove`
+  now throws, like `set` and `update`, rather than deleting only the map entry
+  when the sorted index cannot find it.
+- Sorted collection `update` returns the current item when the updater mutates
+  it in place, matching the map adapters.
+- Stop sorted collection lookups of absent values from searching subtrees that
+  cannot contain them (previously O(2^height) nodes per miss).
+- Fix README and doc-comment iteration examples: iterables yield `[key, value]`
+  tuples.
 - Add deterministic regression/model tests, selectable Immer compatibility
   testing, seeded fuzzing, and repeatable throughput/eviction benchmarks.
