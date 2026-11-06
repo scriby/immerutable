@@ -18,11 +18,6 @@ a 30-40x+ speedup over basic arrays and objects with Immer (the larger the objec
 
 All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operations. For instance, 4,000 individual insertions into a map or array.
 
-The correctness-fix [validation report](docs/fix-validation.md) includes newer
-paired measurements, compatibility results, and performance tradeoffs. Run
-`npm run benchmark:review` for the size/operation sweep or
-`npm run benchmark:eviction` for batch-eviction latency.
-
 |benchmark|time|
 |---------|----|
 |immer map (set)|1900ms|
@@ -56,37 +51,6 @@ are not on the objects themselves. Rather, an "adapter" class is used which acce
 to each method.
 
 ### Usage with Immer
-
-Maps support number and string keys, including `NaN`. `NaN` equals itself as a
-key, and `-0` and `0` identify the same key. Removing or updating an absent key
-does nothing; an absent-key update never calls its callback.
-
-Values may be falsy or `undefined`. `set` always assigns the supplied value,
-including `undefined`. In an `update` callback, returning `undefined` means the
-existing value was mutated in place or should be retained. Return any other
-value to replace it. Sorted-map ordering functions must accept every value type
-stored in that map.
-
-Readonly map/set views follow their associated backing state, including its
-size. A view over an old Immer state continues to refer to that old state.
-Each `entries()`, `keys()`, or `values()` call creates a new iterator; consuming
-the same iterator again continues from its current position, and an exhausted
-iterator stays exhausted. Iterate the collection/view again to start over.
-
-Collections containing JSON-safe keys and values can be serialized and parsed
-with ordinary JSON, then used directly by the adapters. Collision buckets escape
-prototype-sensitive property names internally; all string keys remain supported,
-including `__proto__`, `constructor`, and strings beginning with NUL.
-
-The stored map format has changed. Saved maps, sorted maps, and LRU caches from
-versions using unescaped collision buckets must be rebuilt from application data.
-Legacy storage is not supported. Older adapters cannot read the new escaped
-entries after a downgrade. JSON itself does not preserve values such as
-`undefined` and `NaN`.
-
-An LRU cache with capacity zero immediately evicts every inserted entry. Other
-capacities retain the existing policy of batching evictions after exceeding
-the 10% overflow allowance.
 
 Example reducer using an Immerutable Sorted Map:
 
