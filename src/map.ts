@@ -1,10 +1,11 @@
 import {hash} from './hash';
-import {iterableToIterableIterator, mapIterable, sameValueZero} from './util';
+import {createReadonlyMap, createReadonlySet, sameValueZero} from './util';
 
 const hasOwn = Object.prototype.hasOwnProperty;
 
-// Immer 1.x cannot safely copy __proto__, and its ES5 descriptor cache inherits
-// Object.prototype names. Escape those names and the prefix itself.
+// A JSON-restored bucket is an ordinary object: assigning a `__proto__` key
+// would replace its prototype, and other Object.prototype names are inherited.
+// Escape those names, and the escape prefix itself.
 function bucketKey(key: Key): Key {
   return typeof key === 'string' && (key.charCodeAt(0) === 0 || hasOwn.call(Object.prototype, key)) ? '\0' + key : key;
 }
@@ -83,26 +84,13 @@ export class MapAdapter<K extends Key, V> {
 
   /** Returns true if the map contains the key, false otherwise. */
   has(map: IMap<K, V>, key: K): boolean {
-    const {valueNode, depth} = this.lookupValueNode(map, key);
-    if (valueNode === undefined) return false;
-    if (depth < this.maxDepth) {
-      const existingKey = (valueNode as ISingleValueNode<K, V>).key;
-      return existingKey === key || (existingKey !== existingKey && key !== key);
-    }
-    return this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key) !== undefined;
+    return this.lookupEntry(map, key) !== undefined;
   }
 
   /** Gets the value for the specified key. If the key does not exist, undefined is returned. */
   get(map: IMap<K, V>, key: K): V|undefined {
-    const {valueNode, depth} = this.lookupValueNode(map, key);
-    if (valueNode === undefined) return;
-    if (depth < this.maxDepth) {
-      const entry = valueNode as ISingleValueNode<K, V>;
-      const existingKey = entry.key;
-      return existingKey === key || (existingKey !== existingKey && key !== key) ? entry.value : undefined;
-    }
-    const entry = this.getBucketEntry(valueNode as IMultiValueNode<K, V>, key);
-    return entry && entry.value;
+    const entry = this.lookupEntry(map, key);
+    return entry === undefined ? undefined : entry.value;
   }
 
   /** For adapter composition: presence must be independent of an undefined value. */
@@ -168,8 +156,7 @@ export class MapAdapter<K extends Key, V> {
     if (valueNode) {
       if (depth < this.maxDepth) {
         if (!sameValueZero((valueNode as ISingleValueNode<K, V>).key, key)) return;
-        // ES5 Immer tracks indexed assignments, but can miss deletion of a
-        // sparse-array slot when the array's length does not change.
+        // Clear the slot rather than deleting it, so the array stays packed.
         containingTrieNode[index] = undefined as any;
         map.size--;
       } else {
@@ -206,32 +193,15 @@ export class MapAdapter<K extends Key, V> {
    * ```
    */
   update(map: IMap<K, V>, key: K, updater: (item: V) => V|void|undefined): V|undefined {
-    const {depth, valueNode} = this.lookupValueNode(map, key);
-    if (valueNode === undefined) return;
+    const entry = this.lookupEntry(map, key);
+    if (entry === undefined) return;
 
-    if (depth < this.maxDepth) {
-      if (!sameValueZero((valueNode as ISingleValueNode<K, V>).key, key)) return;
-      const value = (valueNode as ISingleValueNode<K, V>).value;
-      const retVal = updater(value) as V|undefined;
-      if (retVal !== undefined) {
-        (valueNode as ISingleValueNode<K, V>).value = retVal;
-        return retVal;
-      } else {
-        return value;
-      }
-    } else {
-      const bucket = valueNode as IMultiValueNode<K, V>;
-      const existing = this.getBucketEntry(bucket, key);
-      if (existing === undefined) return;
-      const value = existing.value;
-      const retVal = updater(value) as V|undefined;
-      if (retVal !== undefined) {
-        existing.value = retVal;
-        return retVal;
-      } else {
-        return value;
-      }
-    }
+    const value = entry.value;
+    const retVal = updater(value) as V|undefined;
+    if (retVal === undefined) return value;
+
+    entry.value = retVal;
+    return retVal;
   }
 
   /** Gets the number of keys in the map. */
@@ -273,40 +243,62 @@ export class MapAdapter<K extends Key, V> {
    * ```
    */
   getIterable(map: IMap<K, V>): Iterable<[K, V]> {
-    type Frame = {
-      index: number,
-      content: ITrieNode<K, V> | ISingleValueNode<K, V> | IMultiValueNode<K, V>,
-    };
+    return this.createEntryIterable(map, (entry) => [entry.key, entry.value] as [K, V]);
+  }
 
+  getValuesIterable(map: IMap<K, V>): Iterable<V> {
+    return this.createEntryIterable(map, (entry) => entry.value);
+  }
+
+  getKeysIterable(map: IMap<K, V>): Iterable<K> {
+    return this.createEntryIterable(map, (entry) => entry.key);
+  }
+
+  private createEntryIterable<R>(map: IMap<K, V>, project: (entry: ISingleValueNode<K, V>) => R): Iterable<R> {
     return {
       [Symbol.iterator]: () => {
-        const stack: Frame[] = [{ index: 0, content: map.root }];
+        // Parallel stacks of trie nodes and their next child index. Iterative,
+        // so the number of empty slots skipped cannot exhaust the call stack.
+        const nodes: ITrieNode<K, V>[] = [map.root];
+        const indices: number[] = [0];
+        const lengths: number[] = [map.root.length];
+        let bucket: ISingleValueNode<K, V>[]|undefined;
+        let bucketIndex = 0;
 
-        // Iterative, so the number of empty slots skipped cannot exhaust the stack.
         const nextEntry = (): ISingleValueNode<K, V>|undefined => {
-          while (stack.length > 0) {
-            const frame = stack[stack.length - 1];
-            const content = frame.content;
+          if (bucket !== undefined) {
+            if (bucketIndex < bucket.length) return bucket[bucketIndex++];
+            bucket = undefined;
+          }
 
-            if (Array.isArray(content)) {
-              if (frame.index < content.length) {
-                const child = content[frame.index++];
-                if (child != null) stack.push({ content: child, index: 0 });
-              } else {
-                stack.pop();
-              }
-            } else if ('key' in content) {
+          for (let top = nodes.length - 1; top >= 0; top = nodes.length - 1) {
+            const index = indices[top];
+            if (index >= lengths[top]) {
+              nodes.pop();
+              indices.pop();
+              lengths.pop();
+              continue;
+            }
+
+            indices[top] = index + 1;
+            const child = nodes[top][index];
+            if (child == null) continue;
+
+            if (Array.isArray(child)) {
+              nodes.push(child);
+              indices.push(0);
+              lengths.push(child.length);
+            } else if ('key' in child) {
               // Test the key: JSON drops an undefined value, leaving only {key}.
-              stack.pop();
-              return content as ISingleValueNode<K, V>;
+              return child as ISingleValueNode<K, V>;
             } else {
-              stack.pop();
-              const entries = (content as IMultiValueNode<K, V>).map;
-              const bucketEntries: ISingleValueNode<K, V>[] = [];
-              for (const property of Object.keys(entries)) {
-                bucketEntries.push(entries[property]);
-              }
-              stack.push({ content: bucketEntries, index: 0 });
+              const entries = (child as IMultiValueNode<K, V>).map;
+              const properties = Object.keys(entries);
+              if (properties.length === 0) continue;
+              bucket = [];
+              for (let i = 0; i < properties.length; i++) bucket.push(entries[properties[i]]);
+              bucketIndex = 1;
+              return bucket[0];
             }
           }
 
@@ -314,77 +306,32 @@ export class MapAdapter<K extends Key, V> {
         };
 
         return {
-          next: () => {
-            const value = nextEntry();
-
-            if (value !== undefined) {
-              return {
-                value: [value.key, value.value],
-                done: false,
-              };
-            } else {
-              return {
-                value: undefined as any,
-                done: true,
-              };
-            }
+          next: (): IteratorResult<R> => {
+            const entry = nextEntry();
+            return entry !== undefined ? { value: project(entry), done: false } : { value: undefined as any, done: true };
           }
         };
       }
     };
   }
 
-  getValuesIterable(map: IMap<K, V>): Iterable<V> {
-    return mapIterable(this.getIterable(map), (entry) => entry[1]);
-  }
-
-  getKeysIterable(map: IMap<K, V>): Iterable<K> {
-    return mapIterable(this.getIterable(map), (entry) => entry[0]);
-  }
-
   asReadonlyMap(map: IMap<K, V>): ReadonlyMap<K, V> {
-    const adapter = this;
-    const readonlyMap: ReadonlyMap<K, V> = {
-      [Symbol.iterator]: () => iterableToIterableIterator(this.getIterable(map))[Symbol.iterator](),
-      entries: () => iterableToIterableIterator(this.getIterable(map)),
-      keys: () => iterableToIterableIterator(this.getKeysIterable(map)),
-      values: () => iterableToIterableIterator(this.getValuesIterable(map)),
-      forEach: (callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: any) => {
-        const iterator = readonlyMap.entries();
-        while (true) {
-          const next = iterator.next();
-          if (next.done) break;
-          callbackfn.call(thisArg, next.value[1], next.value[0], readonlyMap);
-        }
-      },
-      get: (key: K) => this.get(map, key),
-      has: (key: K) => this.has(map, key),
-      get size() { return adapter.getSize(map); },
-    };
-
-    return readonlyMap;
+    return createReadonlyMap<K, V>({
+      entries: () => this.getIterable(map),
+      keys: () => this.getKeysIterable(map),
+      values: () => this.getValuesIterable(map),
+      get: (key) => this.get(map, key),
+      has: (key) => this.has(map, key),
+      size: () => this.getSize(map),
+    });
   }
 
   keysAsReadonlySet(map: IMap<K, V>): ReadonlySet<K> {
-    const adapter = this;
-    const readonlySet: ReadonlySet<K> = {
-      [Symbol.iterator]: () => iterableToIterableIterator(this.getKeysIterable(map))[Symbol.iterator](),
-      entries: () => iterableToIterableIterator(mapIterable(this.getKeysIterable(map), (key) => [key, key] as [K, K])),
-      keys: () => iterableToIterableIterator(this.getKeysIterable(map)),
-      values: () => iterableToIterableIterator(this.getKeysIterable(map)),
-      forEach: (callbackfn: (value: K, key: K, set: ReadonlySet<K>) => void, thisArg?: any) => {
-        const iterator = readonlySet.keys();
-        while (true) {
-          const next = iterator.next();
-          if (next.done) break;
-          callbackfn.call(thisArg, next.value, next.value, readonlySet);
-        }
-      },
-      has: (key: K) =>  this.has(map, key),
-      get size() { return adapter.getSize(map); },
-    };
-
-    return readonlySet;
+    return createReadonlySet<K>({
+      keys: () => this.getKeysIterable(map),
+      has: (key) => this.has(map, key),
+      size: () => this.getSize(map),
+    });
   }
 
   private createTrieNode(): ITrieNode<K, V> {
@@ -459,5 +406,16 @@ export class MapAdapter<K extends Key, V> {
 
   private computePartialHashCode(hashCode: number, depth: number) {
     return (hashCode >> ((depth - 1) * this.shift)) & this.mask;
+  }
+}
+
+/**
+ * For the adapters built on a map: exposes entry lookup, so a missing key and
+ * a stored undefined value are told apart with one lookup. Not exported from
+ * the package.
+ */
+export class EntryMapAdapter<K extends Key, V> extends MapAdapter<K, V> {
+  findEntry(map: IMap<K, V>, key: K): ISingleValueNode<K, V>|undefined {
+    return this.lookupEntry(map, key);
   }
 }

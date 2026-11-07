@@ -2,9 +2,8 @@
   "compilerOptions": {
     "sourceMap": false,
     "declaration": true,
-    "downlevelIteration": true,
-    "target": "ES5",
-    "lib": ["es2015", "es2015.iterable"],
+    "target": "ES2018",
+    "lib": ["es2018"],
     "module": "commonjs",
     "moduleResolution": "node",
     "noFallthroughCasesInSwitch": true,

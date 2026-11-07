@@ -16,26 +16,30 @@ a 30-40x+ speedup over basic arrays and objects with Immer (the larger the objec
 
 ## Benchmarks
 
-All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operations. For instance, 4,000 individual insertions into a map or array.
+All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operations, each in its own Immer producer.
+For instance, 4,000 individual insertions into a map or array. Measured with Immer 11 (production build) on Node 24.
 
 |benchmark|time|
 |---------|----|
-|immer map (set)|1900ms|
-|immerutable map (set)|48ms|
+|immer map (set)|2905ms|
+|immerutable map (set)|55ms|
 |||
-|immer array (insert in increasing order)|168ms|
-|immer array (insert in random order)|4018ms|
-|immer array (insert in decreasing order)|7791ms|
-|immerutable sorted collection (insert in increasing order)|108ms|
-|immerutable sorted collection (insert in random order)|268ms|
-|immerutable sorted collection (insert in decreasing order)|236ms|
+|immer array (insert in increasing order)|686ms|
+|immer array (insert in random order)|4909ms|
+|immer array (insert in decreasing order)|8882ms|
+|immerutable sorted collection (insert in increasing order)|74ms|
+|immerutable sorted collection (insert in random order)|115ms|
+|immerutable sorted collection (insert in decreasing order)|95ms|
 |||
-|immerutable sorted map (insert in increasing order)|166ms|
-|immerutable sorted map (insert in random order)|345ms|
-|immerutable sorted map (insert in decreasing order)|305ms|
+|immerutable sorted map (insert in increasing order)|82ms|
+|immerutable sorted map (insert in random order)|76ms|
+|immerutable sorted map (insert in decreasing order)|73ms|
 |||
-|immerutable lru cache set (max items = 2000)|252ms|
-|immerutable lru cache set (max items = 400)|369ms|
+|immerutable lru cache set (max items = 2000)|102ms|
+|immerutable lru cache set (max items = 400)|106ms|
+
+For more detailed, repeatable measurements (per-operation timings at several sizes, with and without Immer), see
+[benchmark/review.ts](benchmark/review.ts).
 
 ### When should I use this?
 
@@ -51,6 +55,14 @@ are not on the objects themselves. Rather, an "adapter" class is used which acce
 to each method.
 
 ### Usage with Immer
+
+This library targets modern Immer (version 10 or later). Immer's ES5 mode (`setUseProxies(false)` in Immer 9 and
+earlier) is not supported.
+
+If you use Immer patches: a sorted map or LRU cache keeps its ordering in a structure that is replaced as a whole on
+each change, so its patches replace that structure. Recording them is cheap, but `applyPatches` copies the replaced
+value, so a patch's size and the time to apply it grow with the collection. Immer's copy skips symbol-keyed properties,
+so a sorted map whose comparer reads symbol-keyed properties of its ordering keys cannot be used with `applyPatches`.
 
 Example reducer using an Immerutable Sorted Map:
 
@@ -246,9 +258,10 @@ adapter.remove(sortedCollection, updated);
 
 ### Sorted Map
 
-A sorted map combines the map and sorted collection data structures to provide a map which can be iterated in sorted
+A sorted map combines a map with a sorted index of its keys to provide a map which can be iterated in sorted
 order. This data structure is useful for efficiently keeping a list of items in order as items are added and removed
-for the purpose of rendering the list in a UI.
+for the purpose of rendering the list in a UI. Entries whose ordering keys are equal are ordered by their map keys
+(numbers before strings).
 
 ```typescript
 import {SortedMapAdapter} from 'immerutable';

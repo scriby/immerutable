@@ -1,14 +1,11 @@
-import produce, {mutate, proxyModes, setUseProxies} from './test-support/immer';
+import produce, {mutate} from './test-support/immer';
 import {LruCacheAdapter} from './lrucache';
 import {hash} from './hash';
 
 const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
 
 describe('LRU Cache', () => {
-  describe.each(proxyModes)('restored special keys (Immer proxies: %s)', useProxies => {
-    beforeEach(() => setUseProxies(useProxies));
-    afterEach(() => setUseProxies(true));
-
+  describe('restored special keys', () => {
     it('preserves recency and evicts the oldest entry after JSON restoration', () => {
       const adapter = new LruCacheAdapter<number | string, string>(2);
       const prefix = hash('__proto__') & 0x0fffffff;
@@ -237,6 +234,21 @@ describe('LRU Cache', () => {
 
     it('has the right size', () => {
       expect(readonlySet.size).toBe(9);
+    });
+  });
+
+  describe('updates that remove their own entry', () => {
+    it.each([false, true])('leaves the recency order without the entry (Immer: %s)', useImmer => {
+      const adapter = new LruCacheAdapter<number, number>(3);
+      let lru = adapter.create();
+      const step = (recipe: (draft: typeof lru) => void) => { if (useImmer) lru = produce(lru, recipe); else recipe(lru); };
+      step(draft => { for (let i = 0; i < 3; i++) adapter.set(draft, i, i); });
+      // Adding a fourth entry evicts entry 0, which is being updated.
+      step(draft => { adapter.update(draft, 0, () => { adapter.set(draft, 10, 10); return 5; }); });
+      expect(Array.from(adapter.getKeysIterable(lru))).toEqual([1, 2, 10]);
+      step(draft => { adapter.update(draft, 1, () => { adapter.remove(draft, 1); }); });
+      expect(Array.from(adapter.getIterable(lru))).toEqual([[2, 2], [10, 10]]);
+      expect(adapter.getSize(lru)).toBe(2);
     });
   });
 

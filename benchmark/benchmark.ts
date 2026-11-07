@@ -1,13 +1,11 @@
 import {SortedCollectionAdapter} from '../src/sortedcollection';
 
 require('source-map-support').install();
-import produce, {setAutoFreeze, setUseProxies} from 'immer';
+import {produce} from 'immer';
 import {MapAdapter} from '../src/map';
 import {SortedMapAdapter} from '../src/sortedmap';
 import {LruCacheAdapter} from '../src/lrucache';
 
-setUseProxies(true);
-setAutoFreeze(false);
 declare const global: any;
 
 const WARMUP_ITERATIONS = 1000;

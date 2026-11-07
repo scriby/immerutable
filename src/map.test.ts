@@ -1,4 +1,4 @@
-import produce, {mutate, proxyModes, setUseProxies} from './test-support/immer';
+import produce, {mutate} from './test-support/immer';
 import * as hash from './hash';
 import {IMap, Key, MapAdapter} from './map';
 
@@ -548,19 +548,16 @@ describe('map', () => {
     });
   });
 
-  // Finding 18: Immer 1.2.1 copies a bucket holding an own `__proto__` property
-  // into an ordinary object, turning that entry into the copy's prototype.
-  describe.each(proxyModes)('Map __proto__ key in a collision bucket (Immer proxies: %s)', useProxies => {
-    beforeEach(() => setUseProxies(useProxies));
-    afterEach(() => setUseProxies(true));
-
+  // A copied or JSON-restored bucket is an ordinary object, where a `__proto__`
+  // property would become the object's prototype if it were not escaped.
+  describe('Map __proto__ key in a collision bucket', () => {
     it('drafts every prototype-name value safely after JSON restoration', () => {
       jest.spyOn(hash, 'hash').mockReturnValue(0);
       const adapter = new MapAdapter<string, {items: number[]}>();
       const keys = [...Object.getOwnPropertyNames(Object.prototype), '\0__proto__', '\0\0__proto__', '\0', 'ordinary'];
       const map = adapter.create();
       keys.forEach((key, index) => adapter.set(map, key, {items: [index]}));
-      const original = JSON.parse(JSON.stringify(map));
+      const original: typeof map = JSON.parse(JSON.stringify(map));
       const before = JSON.stringify(original);
 
       const updated = produce(original, (draft: typeof map) => {

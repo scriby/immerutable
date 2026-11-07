@@ -1,5 +1,6 @@
+import {immerable} from 'immer';
 import produce from './test-support/immer';
-import {SortedMapAdapter} from './sortedmap';
+import {SortedMapAdapter, snapshotOrder} from './sortedmap';
 
 interface TestObject {
   data: string;
@@ -504,6 +505,332 @@ describe('Sorted map', () => {
       expect(Array.from(iterator)).toEqual(expected.slice(1));
       expect(iterator[Symbol.iterator]()).toBe(iterator);
       expect(iterator.next().done).toBe(true);
+    });
+  });
+
+  describe('updates that may skip locating the sorted index entry', () => {
+    const build = () => {
+      const adapter = new SortedMapAdapter<string, TestObject>({getOrderingKey});
+      const sortedMap = adapter.create();
+      for (let i = 1; i <= 100; i++) adapter.set(sortedMap, `data ${i}`, {data: i.toString(), order: i});
+      return {adapter, sortedMap};
+    };
+    const orders = (adapter: SortedMapAdapter<string, TestObject>, sortedMap: any) =>
+      Array.from(adapter.getValuesIterable(sortedMap)).map(value => value.order);
+
+    it('still detects a stale index when set receives an object whose order was mutated in place', () => {
+      const {adapter, sortedMap} = build();
+      const value = adapter.get(sortedMap, 'data 10')!;
+      value.order = 1000; // Changed outside update(), so the index still holds order 10.
+
+      expect(() => adapter.set(sortedMap, 'data 10', value)).toThrow('not found in sorted collection');
+    });
+
+    it('keeps the index usable after replacing values without changing their order', () => {
+      const {adapter, sortedMap} = build();
+      adapter.set(sortedMap, 'data 50', {data: 'replaced', order: 50});
+      adapter.update(sortedMap, 'data 60', () => ({data: 'returned', order: 60}));
+      adapter.update(sortedMap, 'data 70', value => { value.data = 'mutated'; });
+
+      expect(orders(adapter, sortedMap)).toEqual(range(1, 100));
+      // Each entry must still be locatable from its current order.
+      adapter.update(sortedMap, 'data 50', value => { value.order = 0; });
+      adapter.set(sortedMap, 'data 60', {data: 'moved', order: 1001});
+      adapter.remove(sortedMap, 'data 70');
+      expect(orders(adapter, sortedMap)).toEqual([0].concat(range(1, 49), range(51, 59), range(61, 69), range(71, 100), [1001]));
+    });
+
+    it('reorders inside a produce when only the order changes', () => {
+      const {adapter, sortedMap} = build();
+      const result = produce(sortedMap, draft => {
+        adapter.update(draft, 'data 1', value => { value.data = 'same order'; });
+        adapter.update(draft, 'data 2', value => { value.order = 500; });
+      });
+
+      expect(orders(adapter, result)).toEqual([1].concat(range(3, 100), [500]));
+      expect(adapter.get(result, 'data 1')!.data).toBe('same order');
+      expect(orders(adapter, sortedMap)).toEqual(range(1, 100));
+    });
+  });
+
+  describe('iterables', () => {
+    it('reflect the current state each time they are iterated', () => {
+      const adapter = new SortedMapAdapter<number, number>({getOrderingKey: value => value});
+      const map = adapter.create();
+      adapter.set(map, 1, 1);
+      adapter.set(map, 2, 2);
+      const entries = adapter.getIterable(map);
+      const values = adapter.getValuesIterable(map, 'backward');
+      const keys = adapter.getKeysIterable(map);
+      adapter.remove(map, 1);
+      adapter.set(map, 3, 3);
+      expect(Array.from(entries)).toEqual([[2, 2], [3, 3]]);
+      expect(Array.from(values)).toEqual([3, 2]);
+      expect(Array.from(keys)).toEqual([2, 3]);
+    });
+  });
+
+  describe('structured ordering keys', () => {
+    it('keeps named properties of array ordering keys', () => {
+      type Item = {order: number[] & {rank: number}};
+      const adapter = new SortedMapAdapter<string, Item, Item['order']>({getOrderingKey: item => item.order, orderComparer: (a, b) => a.rank - b.rank});
+      const map = adapter.create();
+      adapter.set(map, 'a', {order: Object.assign([], {rank: 2})});
+      adapter.set(map, 'z', {order: Object.assign([], {rank: 1})});
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual(['z', 'a']);
+    });
+
+    it('follows class-instance ordering keys that an updater mutates in place', () => {
+      class Priority { constructor(public n: number) {} }
+      type Item = {p: Priority};
+      const adapter = new SortedMapAdapter<number, Item, Priority>({getOrderingKey: item => item.p, orderComparer: (a, b) => a.n - b.n});
+      for (const useImmer of [false, true]) {
+        let map = adapter.create();
+        for (let i = 0; i < 5; i++) adapter.set(map, i, {p: new Priority(i)});
+        const step = (recipe: (draft: typeof map) => void) => { if (useImmer) map = produce(map, recipe); else recipe(map); };
+        step(draft => { adapter.update(draft, 0, item => { item.p.n = 10; }); });
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual([1, 2, 3, 4, 0]);
+        step(draft => { adapter.remove(draft, 0); });
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual([1, 2, 3, 4]);
+      }
+    });
+
+    describe('class-instance ordering keys in a multi-level index', () => {
+      class Priority { constructor(public n: number) {} }
+      type Item = {p: Priority};
+      const adapter = new SortedMapAdapter<number, Item, Priority>({getOrderingKey: item => item.p, orderComparer: (a, b) => a.n - b.n});
+      const scenarios = (name: string, body: (step: (recipe: (draft: any) => void) => void, get: () => any) => void) => {
+        it.each([false, true])(name + ' (Immer: %s)', useImmer => {
+          let map = adapter.create();
+          for (let i = 0; i < 70; i++) adapter.set(map, i, {p: new Priority(i)});
+          const step = (recipe: (draft: typeof map) => void) => { if (useImmer) map = produce(map, recipe); else recipe(map); };
+          body(step, () => map);
+        });
+      };
+
+      scenarios('stays searchable after an updater mutates a key that is also a separator', (step, get) => {
+        step(draft => { adapter.update(draft, 32, item => { item.p.n = 100; }); });
+        step(draft => { adapter.remove(draft, 33); });
+        const keys = Array.from(adapter.getKeysIterable(get()));
+        expect(keys.length).toBe(69);
+        expect(keys[keys.length - 1]).toBe(32);
+      });
+
+      scenarios('stays searchable after the key of a removed value is mutated', (step, get) => {
+        const removed = adapter.get(get(), 32)!;
+        step(draft => { adapter.remove(draft, 32); });
+        removed.p.n = 100;
+        step(draft => { adapter.remove(draft, 33); });
+        expect(adapter.getSize(get())).toBe(68);
+      });
+
+      scenarios('stays searchable after the key of a replaced value is mutated', (step, get) => {
+        const replaced = adapter.get(get(), 5)!;
+        step(draft => { adapter.set(draft, 5, {p: new Priority(5)}); });
+        replaced.p.n = 100;
+        step(draft => { adapter.remove(draft, 5); adapter.remove(draft, 6); });
+        expect(adapter.getSize(get())).toBe(68);
+      });
+    });
+
+    it('does not rebuild the index when an updater changes a different sorted map', () => {
+      type Inner = ReturnType<SortedMapAdapter<number, number, number>['create']>;
+      const inner = new SortedMapAdapter<number, number, number>({getOrderingKey: value => value});
+      let orderingKeyCalls = 0;
+      const outer = new SortedMapAdapter<number, {rank: number, items: Inner}, number>({
+        getOrderingKey: value => { orderingKeyCalls++; return value.rank; },
+      });
+      for (const useImmer of [false, true]) {
+        let map = outer.create();
+        for (let i = 0; i < 100; i++) outer.set(map, i, {rank: i, items: inner.create()});
+        orderingKeyCalls = 0;
+        const recipe = (draft: typeof map) => { outer.update(draft, 5, value => { inner.set(value.items, 1, 1); }); };
+        if (useImmer) map = produce(map, recipe); else recipe(map);
+        expect(orderingKeyCalls).toBeLessThan(5);
+        expect(Array.from(inner.getKeysIterable(outer.get(map, 5)!.items))).toEqual([1]);
+      }
+    });
+
+    it('keeps the index in step when an updater sets or removes its own entry', () => {
+      const adapter = new SortedMapAdapter<number, {o: number}, number>({getOrderingKey: item => item.o});
+      for (const useImmer of [false, true]) {
+        let map = adapter.create();
+        const step = (recipe: (draft: typeof map) => void) => { if (useImmer) map = produce(map, recipe); else recipe(map); };
+        step(draft => { for (let i = 0; i < 10; i++) adapter.set(draft, i, {o: i}); });
+        step(draft => { adapter.update(draft, 3, () => { adapter.set(draft, 3, {o: 100}); return {o: 3}; }); });
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+        step(draft => { adapter.set(draft, 3, {o: 50}); });
+        step(draft => { adapter.update(draft, 4, () => { adapter.remove(draft, 4); return {o: 50}; }); });
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual([0, 1, 2, 5, 6, 7, 8, 9, 3]);
+        expect(adapter.getSize(map)).toBe(9);
+      }
+    });
+
+    it('keeps the index in step when an updater calls the adapter on a class-keyed map', () => {
+      class Priority { constructor(public n: number) {} }
+      type Item = {p: Priority};
+      const adapter = new SortedMapAdapter<number, Item, Priority>({getOrderingKey: item => item.p, orderComparer: (a, b) => a.n - b.n});
+      for (const useImmer of [false, true]) {
+        let map = adapter.create();
+        const step = (recipe: (draft: typeof map) => void) => { if (useImmer) map = produce(map, recipe); else recipe(map); };
+        step(draft => { adapter.set(draft, 1, {p: new Priority(10)}); });
+        step(draft => { adapter.update(draft, 1, item => { adapter.set(draft, 2, {p: new Priority(1)}); item.p.n = 20; }); });
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual([2, 1]);
+        step(draft => { adapter.update(draft, 1, () => { adapter.remove(draft, 1); }); });
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual([2]);
+        expect(adapter.getSize(map)).toBe(1);
+      }
+    });
+
+    it('keeps own __proto__ properties and null prototypes of plain-object ordering keys', () => {
+      const adapter = new SortedMapAdapter<string, any, any>({getOrderingKey: value => value, orderComparer: (a, b) => a['__proto__'] - b['__proto__']});
+      const map = adapter.create();
+      adapter.set(map, 'a', JSON.parse('{"__proto__": 2}'));
+      adapter.set(map, 'b', JSON.parse('{"__proto__": 1}'));
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual(['b', 'a']);
+
+      const bare = Object.create(null);
+      bare.n = 1;
+      expect(Object.getPrototypeOf(snapshotOrder(bare))).toBe(null);
+    });
+
+    it('follows function ordering keys whose properties an updater mutates', () => {
+      type Ranked = (() => void) & {rank: number};
+      const ranked = (rank: number) => Object.assign(() => undefined, {rank}) as Ranked;
+      const adapter = new SortedMapAdapter<string, {f: Ranked}, Ranked>({getOrderingKey: item => item.f, orderComparer: (a, b) => a.rank - b.rank});
+      for (const useImmer of [false, true]) {
+        let map = adapter.create();
+        adapter.set(map, 'a', {f: ranked(1)});
+        adapter.set(map, 'b', {f: ranked(2)});
+        const recipe = (draft: typeof map) => { adapter.update(draft, 'a', item => { item.f.rank = 3; }); };
+        if (useImmer) map = produce(map, recipe); else recipe(map);
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual(['b', 'a']);
+      }
+    });
+
+    it('follows class instances nested in plain-object ordering keys that an updater mutates', () => {
+      class Priority { constructor(public n: number) {} }
+      type Item = {o: {p: Priority}};
+      const adapter = new SortedMapAdapter<string, Item, {p: Priority}>({getOrderingKey: item => item.o, orderComparer: (a, b) => a.p.n - b.p.n});
+      for (const useImmer of [false, true]) {
+        let map = adapter.create();
+        adapter.set(map, 'a', {o: {p: new Priority(1)}});
+        adapter.set(map, 'b', {o: {p: new Priority(2)}});
+        const recipe = (draft: typeof map) => { adapter.update(draft, 'a', item => { item.o.p.n = 3; }); };
+        if (useImmer) map = produce(map, recipe); else recipe(map);
+        expect(Array.from(adapter.getKeysIterable(map))).toEqual(['b', 'a']);
+      }
+    });
+
+    it('stores no drafts from nested producers', () => {
+      class Rank {
+        [immerable] = true;
+        constructor(public value: number) {}
+      }
+      const plain = new SortedMapAdapter<number, {order: number}>({getOrderingKey: item => item.order});
+      const base = produce(plain.create(), draft => { for (let i = 0; i < 100; i++) plain.set(draft, i, {order: i}); });
+      // Reading the whole inner draft drafts the index through the outer draft too.
+      const next = produce({map: base}, outer => {
+        outer.map = produce(outer.map, inner => { JSON.stringify(inner); plain.set(inner, 200, {order: 200}); });
+      });
+      expect(Array.from(plain.getKeysIterable(next.map))).toHaveLength(101);
+
+      const ranked = new SortedMapAdapter<string, {rank: Rank}, Rank>({getOrderingKey: item => item.rank, orderComparer: (a, b) => a.value - b.value});
+      const state = produce(ranked.create(), draft => { ranked.set(draft, 'a', {rank: new Rank(1)}); ranked.set(draft, 'b', {rank: new Rank(2)}); });
+      const moved = produce({map: state}, outer => {
+        outer.map = produce(outer.map, inner => { const item = ranked.get(inner, 'a')!; ranked.remove(inner, 'a'); ranked.set(inner, 'c', item); });
+      });
+      const after = produce(moved.map, draft => { ranked.set(draft, 'd', {rank: new Rank(1.5)}); });
+      expect(Array.from(ranked.getKeysIterable(after))).toEqual(['c', 'd', 'b']);
+    });
+
+    it('keeps symbol-keyed properties of plain-object ordering keys', () => {
+      const rank = Symbol('rank');
+      type Item = {order: {[rank]: number}};
+      const adapter = new SortedMapAdapter<string, Item, {[rank]: number}>({
+        getOrderingKey: item => item.order,
+        orderComparer: (a, b) => a[rank] - b[rank],
+      });
+      const map = produce(adapter.create(), draft => {
+        adapter.set(draft, 'a', {order: {[rank]: 2}});
+        adapter.set(draft, 'z', {order: {[rank]: 1}});
+      });
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual(['z', 'a']);
+    });
+
+    it('does not keep drafts of draftable class ordering keys after the producer ends', () => {
+      class Rank {
+        [immerable] = true;
+        constructor(public value: number) {}
+      }
+      type Item = {rank: Rank};
+      const adapter = new SortedMapAdapter<string, Item, Rank>({
+        getOrderingKey: item => item.rank,
+        orderComparer: (a, b) => a.value - b.value,
+      });
+      let map = produce(adapter.create(), draft => {
+        adapter.set(draft, 'a', {rank: new Rank(1)});
+        adapter.set(draft, 'b', {rank: new Rank(2)});
+      });
+      map = produce(map, draft => {
+        // Moving a value to another key stores its (drafted) ordering key anew.
+        const item = adapter.get(draft, 'a')!;
+        adapter.remove(draft, 'a');
+        adapter.set(draft, 'c', item);
+      });
+      map = produce(map, draft => {
+        adapter.set(draft, 'd', {rank: new Rank(1.5)});
+        adapter.remove(draft, 'c');
+      });
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual(['d', 'b']);
+    });
+  });
+
+  describe('JSON round trips', () => {
+    it('keeps entries with undefined ordering keys usable, and treats null like undefined', () => {
+      type Item = {p?: number|null};
+      const seen: any[] = [];
+      const adapter = new SortedMapAdapter<number, Item>({
+        getOrderingKey: item => item.p,
+        orderComparer: (a: any, b: any) => {
+          seen.push(a, b);
+          const aLast = a === undefined, bLast = b === undefined;
+          return aLast || bLast ? (aLast === bLast ? 0 : aLast ? 1 : -1) : a - b;
+        },
+      });
+      let map = adapter.create();
+      adapter.set(map, 1, {p: undefined});
+      adapter.set(map, 2, {p: 2});
+      adapter.set(map, 3, {p: null});
+      adapter.set(map, 4, {p: 1});
+      map = JSON.parse(JSON.stringify(map));
+
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual([4, 2, 1, 3]);
+      adapter.update(map, 1, item => { item.p = 3; });
+      adapter.update(map, 3, item => { item.p = 0; });
+      adapter.set(map, 5, {});
+      adapter.remove(map, 2);
+      expect(Array.from(adapter.getKeysIterable(map))).toEqual([3, 4, 1, 5]);
+      expect(seen).not.toContain(null);
+    });
+
+    it('keeps a multi-level sorted map usable after serialization', () => {
+      const adapter = new SortedMapAdapter<string | number, TestObject>({getOrderingKey, maxItemsPerLevel: 4});
+      let sortedMap = adapter.create();
+      for (let i = 0; i < 200; i++) adapter.set(sortedMap, i % 3 ? i : `key ${i}`, {data: String(i), order: (i * 37) % 101});
+      const before = Array.from(adapter.getIterable(sortedMap));
+      sortedMap = JSON.parse(JSON.stringify(sortedMap));
+
+      expect(Array.from(adapter.getIterable(sortedMap))).toEqual(before);
+      adapter.update(sortedMap, 1, value => { value.order = -1; });
+      adapter.remove(sortedMap, 'key 3');
+      adapter.set(sortedMap, 'new', {data: 'new', order: 1000});
+
+      const orders = Array.from(adapter.getValuesIterable(sortedMap)).map(value => value.order);
+      expect(orders).toEqual([...orders].sort((a, b) => a - b));
+      expect(orders[0]).toBe(-1);
+      expect(adapter.getLast(sortedMap)).toEqual({data: 'new', order: 1000});
+      expect(adapter.getSize(sortedMap)).toBe(200);
     });
   });
 

@@ -6,7 +6,7 @@ import {strict as assert} from 'assert';
 import {writeFileSync} from 'fs';
 import {resolve} from 'path';
 import {execFileSync} from 'child_process';
-import produce, {setAutoFreeze} from 'immer';
+import {produce, setAutoFreeze} from 'immer';
 
 const moduleRoot = resolve(process.argv[2] || 'dist/src');
 const moduleRoots = process.env.BENCH_COMPARE ? [moduleRoot, resolve(process.env.BENCH_COMPARE)] : [moduleRoot];
@@ -15,7 +15,8 @@ const sizes = (process.env.BENCH_SIZES || '10,1000,10000,100000').split(',').map
 const samples = Number(process.env.BENCH_SAMPLES || 10);
 const modes = (process.env.BENCH_MODES || 'direct,immer,batch').split(',');
 const filter = new RegExp(process.env.BENCH_FILTER || '');
-setAutoFreeze(process.env.BENCH_FREEZE === 'true');
+// Immer freezes results by default; without it, every producer walks the whole state.
+setAutoFreeze(process.env.BENCH_FREEZE !== 'false');
 
 interface Fixture {
   run(count: number): number;
@@ -38,7 +39,7 @@ const revision = execFileSync('git', ['rev-parse', 'HEAD'], {encoding: 'utf8'}).
 function save() {
   writeFileSync(process.argv[3] || 'dist/performance.json', JSON.stringify({
     revision, moduleRoot, moduleRoots, node: process.version, platform: process.platform, arch: process.arch,
-    autoFreeze: process.env.BENCH_FREEZE === 'true', samples, checksum, results,
+    autoFreeze: process.env.BENCH_FREEZE !== 'false', samples, checksum, results,
   }, null, 2));
 }
 

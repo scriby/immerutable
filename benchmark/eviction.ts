@@ -3,10 +3,9 @@
 // incorrect keys, so its timings are not a valid correctness-equivalent baseline.
 import {strict as assert} from 'assert';
 import {writeFileSync} from 'fs';
-import produce, {setAutoFreeze} from 'immer';
+import {produce} from 'immer';
 import {LruCacheAdapter, SortedMapAdapter} from '../src';
 
-setAutoFreeze(false);
 const sizes = (process.env.BENCH_SIZES || '10,1000,10000,100000').split(',').map(Number);
 const samples = Number(process.env.BENCH_SAMPLES || 10);
 const results: any[] = [];

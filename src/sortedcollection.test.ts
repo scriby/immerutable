@@ -1,3 +1,4 @@
+import produce from './test-support/immer';
 import {SortedCollectionAdapter} from './sortedcollection';
 
 interface TestObject {
@@ -14,7 +15,30 @@ describe('B-tree', () => {
     const adapter = new SortedCollectionAdapter({ orderComparer, maxItemsPerLevel: 4 });
     const btree = adapter.create();
 
-    expect(btree.root.items.length).toBe(0);
+    expect(adapter.getSize(btree)).toBe(0);
+    expect(Array.from(adapter.getIterable(btree))).toEqual([]);
+    expect(adapter.getFirst(btree)).toBeUndefined();
+  });
+
+  it('keeps a multi-level collection usable after a JSON round trip', () => {
+    const adapter = new SortedCollectionAdapter<{id: number, order: number}>({
+      orderComparer: (a, b) => a.order - b.order, equalityComparer: (a, b) => a.id === b.id, maxItemsPerLevel: 4,
+    });
+    let collection = adapter.create();
+    for (let i = 0; i < 200; i++) adapter.insert(collection, {id: i, order: (i * 37) % 101});
+    const before = Array.from(adapter.getIterable(collection));
+    collection = JSON.parse(JSON.stringify(collection));
+
+    expect(Array.from(adapter.getIterable(collection))).toEqual(before);
+    expect(Array.from(adapter.getIterable(collection, 'backward'))).toEqual([...before].reverse());
+    adapter.update(collection, {id: 5, order: (5 * 37) % 101}, item => { item.order = -1; });
+    adapter.remove(collection, {id: 6, order: (6 * 37) % 101});
+    adapter.insert(collection, {id: 1000, order: 1000});
+
+    const orders = Array.from(adapter.getIterable(collection)).map(item => item.order);
+    expect(orders).toEqual([...orders].sort((a, b) => a - b));
+    expect(adapter.getFirst(collection)).toEqual({id: 5, order: -1});
+    expect(adapter.getSize(collection)).toBe(200);
   });
 
   it('inserts 1 through 10 in order', () => {
@@ -554,5 +578,37 @@ describe('B-tree', () => {
       expect(comparisons).toBeLessThanOrEqual(4 * Math.ceil(Math.log2(size)));
       expect(adapter.getSize(collection)).toBe(size);
     });
+  });
+
+  describe('lookup handles', () => {
+    type Item = {id: number, o: number, tag?: string};
+    const adapter = new SortedCollectionAdapter<Item>({orderComparer: (a, b) => a.o - b.o, equalityComparer: (a, b) => a.id === b.id, maxItemsPerLevel: 4});
+
+    it('stores a replacement assigned to the handle', () => {
+      let collection = produce(adapter.create(), draft => { for (let i = 0; i < 20; i++) adapter.insert(draft, {id: i, o: i}); });
+      collection = produce(collection, draft => {
+        const info = adapter.lookupValuePath(draft, {id: 2, o: 2})!;
+        expect(info.valueNode.value.id).toBe(2);
+        info.valueNode.value = {id: 2, o: 2, tag: 'replaced'};
+      });
+      expect(Array.from(adapter.getIterable(collection))[2]).toEqual({id: 2, o: 2, tag: 'replaced'});
+
+      collection = produce(collection, draft => {
+        const info = adapter.lookupValuePath(draft, {id: 3, o: 3})!;
+        info.valueNode.value = {id: 3, o: 100};
+        adapter.ensureSortedOrderOfNode(draft, info);
+      });
+      const items = Array.from(adapter.getIterable(collection));
+      expect(items[items.length - 1]).toEqual({id: 3, o: 100});
+      expect(items.map(item => item.o)).toEqual([...items.map(item => item.o)].sort((a, b) => a - b));
+    });
+  });
+
+  it('keeps NUL characters out of its stored state', () => {
+    const adapter = new SortedCollectionAdapter<number>({orderComparer, maxItemsPerLevel: 4});
+    const collection = adapter.create();
+    for (let i = 0; i < 100; i++) adapter.insert(collection, (i * 37) % 101);
+    // JSON writes a NUL character as the escape \u0000.
+    expect(JSON.stringify(collection)).not.toContain('\\u0000');
   });
 });

@@ -1,11 +1,11 @@
-import produce, {proxyModes, setUseProxies} from './test-support/immer';
+import produce from './test-support/immer';
 import {IMap, MapAdapter} from './map';
 import {SortedMapAdapter} from './sortedmap';
 import {SortedCollectionAdapter} from './sortedcollection';
 import {LruCacheAdapter} from './lrucache';
 import * as hashing from './hash';
 
-const modes = ['direct', ...proxyModes.map(proxies => proxies ? 'proxy' : 'es5')];
+const modes = ['direct', 'immer'];
 
 function restoredMap(): IMap<number | string, {count: number}> {
   const adapter = new MapAdapter<number | string, {count: number}>();
@@ -16,8 +16,7 @@ function restoredMap(): IMap<number | string, {count: number}> {
 }
 
 describe.each(modes)('Persistent-state compatibility (%s)', mode => {
-  beforeEach(() => setUseProxies(mode !== 'es5'));
-  afterEach(() => { setUseProxies(true); jest.restoreAllMocks(); });
+  afterEach(() => jest.restoreAllMocks());
   function change<S>(state: S, recipe: (draft: S) => void): S {
     if (mode !== 'direct') return produce(state, recipe);
     recipe(state);
