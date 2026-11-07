@@ -1,7 +1,7 @@
 {
   "name": "immerutable",
   "description": "Scalable collections for Immer, inspired by ImmutableJS.",
-  "version": "2.0.4",
+  "version": "3.0.0",
   "devDependencies": {
     "@types/jest": "29.5.13",
     "@types/node": "22.5.5",
@@ -12,7 +12,11 @@
     "ts-jest": "29.2.5",
     "typescript": "5.6.2"
   },
-  "files": ["dist/src/**", "src/**", "tsconfig.json"],
+  "files": [
+    "dist/src/**",
+    "src/**",
+    "tsconfig.json"
+  ],
   "peerDependencies": {
     "immer": ">=10"
   },
@@ -25,8 +29,8 @@
   "main": "dist/src/index.js",
   "author": "Chris Scribner",
   "repository": {
-    "type" : "git",
-    "url" : "https://github.com/scriby/immerutable"
+    "type": "git",
+    "url": "https://github.com/scriby/immerutable"
   },
   "scripts": {
     "benchmark": "tsc && node --expose-gc dist/benchmark/benchmark.js",

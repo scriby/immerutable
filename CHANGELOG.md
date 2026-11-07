@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.0.0
 
 - Correct map removal/update of absent colliding keys, NaN key identity, and
   sparse-array slot removal.
