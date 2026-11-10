@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased
+
+- Fix sorted-map index access under Closure ADVANCED property renaming. Keep
+  descriptor reads (and the existing storage layout) while consistently quoting
+  `tree`; remove string-based property checks from map traversal and index splits.
+- Use static imports of Immer's public `original` and `current` APIs so browser
+  bundles do not depend on a runtime `require`. **Dependency change:** Immer >=10
+  is now a required peer, including for applications using only plain state.
+- Readonly map/set iterators now inherit native iterator helpers without using
+  generators. They remain lazy and single-use; early termination and disposal
+  close the underlying iterator through `return()`. Disposal previously called
+  `Symbol.dispose` on the source iterable. Helpers require runtime support;
+  basic iteration still targets ES2018. Declarations require TypeScript 5.6+.
+- Clarify the v3 sorted-map tie-break: equal ordering keys sort by map key,
+  numbers before strings, with strings compared by code unit (`"10"` before
+  `"9"`). Earlier versions did not guarantee insertion order among ties.
+  To preserve arrival order, include a sequence number in the ordering key and
+  supply a comparer for `[timestampMs, sequence]`. This does not change sorted
+  collection ordering or LRU recency ordering.
+
 ## 3.0.0
 
 - Correct map removal/update of absent colliding keys, NaN key identity, and

@@ -23,6 +23,36 @@ describe.each(modes)('Persistent-state compatibility (%s)', mode => {
     return state;
   }
 
+  it('orders equal sorted-map orders by key regardless of insertion history', () => {
+    const adapter = new SortedMapAdapter<number | string, number>({getOrderingKey: value => value, maxItemsPerLevel: 4});
+    const expected = [NaN, -1, 0, 2, '10', '9', 'a'];
+    for (const insertion of [expected, [...expected].reverse(), ['9', 2, NaN, 'a', 0, '10', -1]]) {
+      let state = change(adapter.create(), draft => insertion.forEach(key => adapter.set(draft, key, 1)));
+      state = change(state, draft => {
+        adapter.remove(draft, '10');
+        adapter.set(draft, '10', 1);
+        adapter.set(draft, -0, 1);
+        adapter.update(draft, 2, () => 2);
+        adapter.update(draft, 2, () => 1);
+      });
+      expect(Array.from(adapter.getKeysIterable(state))).toEqual(expected);
+      expect(Array.from(adapter.getIterable(state, 'backward'), ([key]) => key)).toEqual([...expected].reverse());
+    }
+  });
+
+  it('can preserve arrival order among timestamp ties with an explicit sequence', () => {
+    const adapter = new SortedMapAdapter<string, {timestampMs: number, sequence: number}, [number, number]>({
+      getOrderingKey: value => [value.timestampMs, value.sequence],
+      orderComparer: (a, b) => a[0] - b[0] || a[1] - b[1],
+    });
+    const state = change(adapter.create(), draft => {
+      adapter.set(draft, '9', {timestampMs: 1, sequence: 0});
+      adapter.set(draft, '10', {timestampMs: 1, sequence: 1});
+      adapter.set(draft, 'earlier', {timestampMs: 0, sequence: 2});
+    });
+    expect(Array.from(adapter.getKeysIterable(state))).toEqual(['earlier', '9', '10']);
+  });
+
   it.each(['insert', 'update', 'remove'])('can %s in a JSON-restored bucket holding __proto__', operation => {
     const adapter = new MapAdapter<number | string, {count: number}>();
     const original = restoredMap();

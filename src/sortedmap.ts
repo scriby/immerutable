@@ -20,7 +20,7 @@ export interface IKeyWithOrder<K, O> {
  * (order, key) entries that Immer never drafts (see sortedindex.ts).
  */
 export interface ISortedMap<K, V, O=any> extends IMap<K, V> {
-  tree: ISortedIndexNode;
+  'tree': ISortedIndexNode;
 }
 
 export type GetOrderingKey<V, O> = (value: V) => O;
@@ -45,6 +45,8 @@ function defaultOrderComparer(a: any, b: any): number {
  * (see writeTree), so Immer records them as one patch replacing the index.
  */
 function readTree(sortedMap: ISortedMap<any, any>): ISortedIndexNode {
+  // Keep every access to 'tree' quoted: Closure must preserve the name used
+  // by this descriptor lookup, including when creating and replacing it.
   // On a draft, a property descriptor carries the stored value, where a plain
   // read would create a draft of it. If something did draft it, nothing has
   // modified it (it is only ever replaced), so the draft's original is current.
@@ -130,7 +132,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
 
   create(): ISortedMap<K, V, O> {
     const map = this.mapAdapter.create();
-    return { root: map.root, size: map.size, tree: this.index.empty() };
+    return { root: map.root, size: map.size, 'tree': this.index.empty() };
   }
 
   get(sortedMap: ISortedMap<K ,V, O>, key: K): V|undefined {
@@ -292,7 +294,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
 
   private writeTree(sortedMap: ISortedMap<K, V, O>, before: ISortedIndexNode, after: ISortedIndexNode): void {
     indexWrites.set(sortedMap, (indexWrites.get(sortedMap) || 0) + 1);
-    if (after !== before) sortedMap.tree = after;
+    if (after !== before) sortedMap['tree'] = after;
   }
 
   private notFound(key: K): Error {

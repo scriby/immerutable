@@ -1,18 +1,69 @@
-export function iterableToIterableIterator<T>(iterable: Iterable<T>): IterableIterator<T> {
-  let iterator: Iterator<T> | undefined;
-  const result: IterableIterator<T> & Disposable = {
-    [Symbol.iterator]: () => result,
-    next: () => {
-      if (!iterator) iterator = iterable[Symbol.iterator]();
-      return iterator.next();
-    },
-    [Symbol.dispose]: () => {
-      if (Symbol.dispose in iterable) {
-        (iterable as Iterable<T> & Disposable)[Symbol.dispose]();
-      }
-    },
-  };
-  return result;
+import {current, original} from 'immer';
+
+// The intrinsic iterator prototype exists even on ES2018 runtimes without a
+// global Iterator constructor. On newer runtimes it also supplies the helpers.
+const iteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+
+function closeIterator(iterator: Iterator<unknown>): void {
+  const close = iterator.return;
+  if (close) {
+    const result = close.call(iterator);
+    if (result === null || (typeof result !== 'object' && typeof result !== 'function')) {
+      throw new TypeError('Iterator return() must return an object');
+    }
+  }
+}
+
+class LazyIterator<T> {
+  private iterator: Iterator<T> | undefined;
+  private closed = false;
+
+  constructor(private iterable: Iterable<T> | undefined) {}
+
+  next(): IteratorResult<T, undefined> {
+    if (this.closed) return {value: undefined, done: true};
+    try {
+      if (!this.iterator) this.iterator = this.iterable![Symbol.iterator]();
+      const result = this.iterator.next();
+      if (!result.done) return result;
+      this.finish();
+      return {value: undefined, done: true};
+    } catch (error) {
+      this.finish();
+      throw error;
+    }
+  }
+
+  return(): IteratorResult<T, undefined> {
+    const iterator = this.iterator;
+    this.finish();
+    if (iterator) closeIterator(iterator);
+    return {value: undefined, done: true};
+  }
+
+  private finish(): void {
+    this.closed = true;
+    this.iterator = undefined;
+    this.iterable = undefined;
+  }
+}
+
+// Change the shared prototype once, never the prototype of each new iterator.
+Object.setPrototypeOf(LazyIterator.prototype, iteratorPrototype);
+// Do not require disposable declarations (or create an "undefined" property)
+// on older TypeScript libs/runtimes. Closing an unstarted iterator stays lazy.
+const dispose: symbol | undefined = (Symbol as unknown as {readonly dispose?: symbol}).dispose;
+if (dispose !== undefined) {
+  Object.defineProperty(LazyIterator.prototype, dispose, {
+    configurable: true,
+    writable: true,
+    value(this: LazyIterator<unknown>) { this.return(); },
+  });
+}
+
+export function iterableToIterableIterator<T>(iterable: Iterable<T>): IteratorObject<T, undefined, unknown> {
+  // TypeScript cannot infer methods installed through the prototype chain.
+  return new LazyIterator(iterable) as unknown as IteratorObject<T, undefined, unknown>;
 }
 
 export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) => U): Iterable<U> {
@@ -29,7 +80,11 @@ export function mapIterable<T, U>(iterable: Iterable<T>, transform: (item: T) =>
           } else {
             return { value: transform(next.value), done: false };
           }
-        }
+        },
+        return() {
+          closeIterator(iterator);
+          return {value: undefined, done: true};
+        },
       };
     }
   };
@@ -95,22 +150,13 @@ export function isDraft(value: any): boolean {
   return value != null && value[DRAFT_STATE] !== undefined;
 }
 
-// Draft internals are renamed in Immer's production build, so use its public
-// API. Loaded lazily: only a draft (so Immer itself) can reach the callers.
-// Kept once loaded: require resolves the module path on every call.
-declare const require: (id: string) => any;
-let immerModule: any;
-function immer(): any {
-  return immerModule || (immerModule = require('immer'));
-}
-
 /**
  * The state a draft (or any other value, returned as is) was created from. In
  * nested producers, original can return a draft of the outer producer, so
  * unwrap until none is left.
  */
 export function originalOf<T>(value: T): T {
-  while (isDraft(value)) value = immer().original(value);
+  while (isDraft(value)) value = original(value as any) as T;
   return value;
 }
 
@@ -120,7 +166,7 @@ export function originalOf<T>(value: T): T {
  */
 export function currentOf<T extends object>(draft: T): T {
   let value = draft;
-  while (isDraft(value)) value = immer().current(value);
+  while (isDraft(value)) value = current(value as any) as T;
   return value;
 }
 

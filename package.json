@@ -5,6 +5,8 @@
   "devDependencies": {
     "@types/jest": "29.5.13",
     "@types/node": "22.5.5",
+    "esbuild": "0.28.2",
+    "google-closure-compiler": "20261108.0.0",
     "immer": "11.2.9",
     "jest": "29.7.0",
     "number-generator": "2.1.5",
@@ -20,11 +22,6 @@
   "peerDependencies": {
     "immer": ">=10"
   },
-  "peerDependenciesMeta": {
-    "immer": {
-      "optional": true
-    }
-  },
   "license": "MIT",
   "main": "dist/src/index.js",
   "author": "Chris Scribner",
@@ -33,6 +30,9 @@
     "url": "https://github.com/scriby/immerutable"
   },
   "scripts": {
+    "check:types": "tsc --noEmit && tsc -p tsconfig.iterators.json --lib es2018 && tsc -p tsconfig.iterators.json",
+    "test:ci": "jest src --runInBand",
+    "check:browser": "node scripts/check-browser.mjs",
     "benchmark": "tsc && node --expose-gc dist/benchmark/benchmark.js",
     "benchmark:review": "tsc && node --expose-gc dist/benchmark/review.js",
     "benchmark:eviction": "tsc && node --expose-gc dist/benchmark/eviction.js",

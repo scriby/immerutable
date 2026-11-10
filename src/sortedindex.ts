@@ -36,6 +36,10 @@ interface Split {
   right: ISortedIndexNode;
 }
 
+function isSplit(result: ISortedIndexNode | Split): result is Split {
+  return (result as Split).right !== undefined;
+}
+
 const freeze = Object.freeze;
 
 // Freezing the node is what makes Immer skip it. Its arrays are left unfrozen:
@@ -117,7 +121,7 @@ export class SortedIndex<O> {
   /** Adds an entry, which must not already be present. */
   insert(root: ISortedIndexNode, order: O, key: Key): ISortedIndexNode {
     const result = this.insertInto(root, order, key);
-    if (!('right' in result)) return result;
+    if (!isSplit(result)) return result;
     return makeNode([result.order], [result.key], [result.left, result.right]);
   }
 
@@ -249,7 +253,7 @@ export class SortedIndex<O> {
 
     const index = this.childIndex(node, order, key);
     const result = this.insertInto(node.c[index], order, key);
-    if (!('right' in result)) {
+    if (!isSplit(result)) {
       const c = copyRange(node.c);
       c[index] = result;
       return makeNode(node.o as any[], node.k as Key[], c);

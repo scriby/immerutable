@@ -288,7 +288,7 @@ export class MapAdapter<K extends Key, V> {
               nodes.push(child);
               indices.push(0);
               lengths.push(child.length);
-            } else if ('key' in child) {
+            } else if ((child as ISingleValueNode<K, V>).key !== undefined) {
               // Test the key: JSON drops an undefined value, leaving only {key}.
               return child as ISingleValueNode<K, V>;
             } else {

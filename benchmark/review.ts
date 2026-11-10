@@ -76,7 +76,9 @@ function measure(name: string, size: number, mode: string, create: () => Fixture
 const names = [
   'map/build', 'map/get', 'map/miss', 'map/overwrite', 'map/churn', 'map/iterate',
   'map/strings', 'map/collisions', 'map/restored',
+  'map/readonly-iterate-keys', 'map/readonly-iterate-entries', 'map/readonly-iterate-set-entries',
   'sorted/build', 'sorted/unchanged', 'sorted/reorder', 'sorted/iterate', 'sorted/backward',
+  'sorted/readonly-iterate-keys', 'sorted/readonly-iterate-entries', 'sorted/readonly-iterate-set-entries',
   'collection/reorder', 'lru/hit', 'lru/evict',
 ];
 for (const size of sizes) for (const mode of modes) for (const name of names) for (let variant = 0; variant < libraries.length; variant++) {
@@ -106,6 +108,17 @@ for (const size of sizes) for (const mode of modes) for (const name of names) fo
     let sequence = 0;
     const step = (draft: any, i: number): number => {
       const key = keys[(Math.imul(i, 2654435761) >>> 0) % length];
+      if (name.includes('/readonly-iterate-')) {
+        let sum = 0;
+        if (name.endsWith('-set-entries')) {
+          for (const [key] of adapter.keysAsReadonlySet(draft).entries()) sum += key + 1;
+        } else if (name.endsWith('-keys')) {
+          for (const key of adapter.asReadonlyMap(draft).keys()) sum += key + 1;
+        } else {
+          for (const [, value] of adapter.asReadonlyMap(draft).entries()) sum += value.count;
+        }
+        return sum;
+      }
       switch (name) {
         case 'map/get': case 'map/strings': case 'map/collisions': case 'map/restored':
           return adapter.get(draft, key).count;

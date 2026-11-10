@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": [],
+    "lib": ["es2018", "esnext.iterator", "esnext.disposable"]
+  },
+  "include": ["src/*.ts", "scripts/browser-fixture.ts"],
+  "exclude": ["src/*.test.ts"]
+}
