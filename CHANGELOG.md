@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 3.1.0
 
 - Fix sorted-map index access under Closure ADVANCED property renaming. Keep
   descriptor reads (and the existing storage layout) while consistently quoting
