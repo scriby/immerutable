@@ -1,9 +1,9 @@
 # Changelog
 
-## Unreleased
+## 4.0.0
 
-These changes break stored state and some behaviour, so the next release is a
-major version (4.0.0).
+This release changes the stored layout of every collection and some
+behaviour; see the entries marked in bold before upgrading.
 
 - **Storage-format change:** maps, sorted maps, sorted collections and LRU
   caches use new internal layouts. State saved by an earlier version is not
