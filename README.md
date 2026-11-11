@@ -39,6 +39,56 @@ each time is the fastest of five runs.
 |immerutable lru cache set (max items = 2000)|77ms|
 |immerutable lru cache set (max items = 400)|75ms|
 
+### Compared with plain Immer and earlier versions
+
+The time for one operation, each in its own Immer producer, on state that Immer has already frozen. "Plain Immer"
+keeps the same data in plain objects and arrays: an object for a map, an array kept in order with binary search and
+`splice` for a sorted collection, an object plus a sorted array of keys for a sorted map, and an object plus an array
+of keys in order of use for an LRU cache. Versions 2.0.4 and 3.0.0 are the published packages. Measured with Immer
+11.2.9 (production build) on Node 24; each time is the median of seven rounds.
+
+**1,000 entries**
+
+|scenario|plain Immer|2.x|3.x|4.x|
+|--------|----------:|--:|--:|--:|
+|Map: read a value|111 µs|6.6 µs|6.5 µs|3.0 µs|
+|Map: replace a value|141 µs|11.9 µs|10.5 µs|6.7 µs|
+|Map: add a key and remove another|180 µs|19.1 µs|21.1 µs|12.1 µs|
+|Sorted collection: insert an item and remove another|1.04 ms|106 µs|48.3 µs|27.3 µs|
+|Sorted collection: change an item's order|1.07 ms|112 µs|48.3 µs|26.5 µs|
+|Sorted map: update a value, order unchanged|142 µs|31.6 µs|10.4 µs|6.6 µs|
+|Sorted map: update a value's order|890 µs|132 µs|16.1 µs|11.1 µs|
+|LRU cache: get (a hit)|691 µs|104 µs|15.6 µs|8.5 µs|
+|LRU cache: set a new key (evicting)|903 µs|96.7 µs|26.5 µs|15.4 µs|
+
+**10,000 entries**
+
+|scenario|plain Immer|2.x|3.x|4.x|
+|--------|----------:|--:|--:|--:|
+|Map: read a value|1.24 ms|8.0 µs|7.4 µs|3.6 µs|
+|Map: replace a value|1.51 ms|14.2 µs|13.2 µs|8.5 µs|
+|Map: add a key and remove another|1.53 ms|23.1 µs|21.4 µs|13.9 µs|
+|Sorted collection: insert an item and remove another|11.3 ms|145 µs|59.3 µs|32.1 µs|
+|Sorted collection: change an item's order|10.0 ms|149 µs|60.3 µs|32.0 µs|
+|Sorted map: update a value, order unchanged|1.50 ms|46.9 µs|13.3 µs|8.3 µs|
+|Sorted map: update a value's order|9.37 ms|183 µs|19.4 µs|13.2 µs|
+|LRU cache: get (a hit)|7.00 ms|120 µs|18.6 µs|9.7 µs|
+|LRU cache: set a new key (evicting)|9.43 ms|98.3 µs|30.9 µs|17.9 µs|
+
+**100,000 entries**
+
+|scenario|plain Immer|2.x|3.x|4.x|
+|--------|----------:|--:|--:|--:|
+|Map: read a value|14.2 ms|9.1 µs|8.6 µs|3.9 µs|
+|Map: replace a value|21.1 ms|17.5 µs|16.0 µs|10.3 µs|
+|Map: add a key and remove another|19.8 ms|29.4 µs|29.9 µs|20.1 µs|
+|Sorted collection: insert an item and remove another|154 ms|167 µs|73.1 µs|36.4 µs|
+|Sorted collection: change an item's order|120 ms|169 µs|75.2 µs|37.8 µs|
+|Sorted map: update a value, order unchanged|22.2 ms|56.7 µs|16.4 µs|10.4 µs|
+|Sorted map: update a value's order|102 ms|211 µs|24.0 µs|16.3 µs|
+|LRU cache: get (a hit)|77.3 ms|136 µs|22.3 µs|11.0 µs|
+|LRU cache: set a new key (evicting)|106 ms|59.3 µs|27.1 µs|20.4 µs|
+
 For more detailed, repeatable measurements (per-operation timings at several sizes, with and without Immer), see
 [benchmark/review.ts](benchmark/review.ts).
 
