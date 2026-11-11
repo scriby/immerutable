@@ -60,21 +60,6 @@ to each method.
 This library targets modern Immer (version 10 or later). Immer's ES5 mode (`setUseProxies(false)` in Immer 9 and
 earlier) is not supported.
 
-If you use Immer patches: a sorted map keeps its ordering in a structure that is replaced as a whole on each change,
-so its patches replace that structure. An LRU cache keeps two such structures, and replaces both whenever an entry is
-used, including by `get`. Recording these patches is cheap, but `applyPatches` copies the replaced value, so a patch's
-size and the time to apply it grow with the collection. Immer's copy skips symbol-keyed properties, so a sorted map
-whose comparer reads symbol-keyed properties of its ordering keys cannot be used with `applyPatches`.
-
-The stored layout of every collection changed in version 4. State saved by an earlier version (for example in local
-storage) is not converted, and must be rebuilt from application data. Given state saved by version 3, the operations
-that read or change entries throw an error rather than misread it (iterating an empty sorted map or LRU cache still
-yields nothing).
-
-`setUseStrictShallowCopy(true)` is not supported together with a nested producer whose result is assigned back into
-the outer draft (`draft.map = produce(draft.map, ...)`): Immer's strict copy leaves parts of the earlier state in the
-result, where a later change would reach them.
-
 Example reducer using an Immerutable Sorted Map:
 
 ```typescript
@@ -227,9 +212,6 @@ interface TestObject {
 // Create an adapter to work with the sorted collection.
 const adapter = new SortedCollectionAdapter<TestObject>({
   orderComparer: (a, b) => a.order - b.order,
-  // Optional. By default an item is found by passing the stored object itself
-  // (or, inside a producer, a draft of it). Either way, what is passed must
-  // have the item's current order.
   equalityComparer: (a, b) => a.id === b.id,
 });
 
