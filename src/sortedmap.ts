@@ -1,7 +1,7 @@
 import {EntryMapAdapter, IMap} from './map';
 import {Comparer} from './sortedcollection';
 import {ISortedIndexNode, SortedIndex} from './sortedindex';
-import {createReadonlyMap, createReadonlySet, currentOf, isDraft, lazyIterable, originalOf} from './util';
+import {createReadonlyMap, createReadonlySet, currentOf, isDraft, lazyIterable, readWhole} from './util';
 
 const freeze = Object.freeze;
 const hasOwn = Object.prototype.hasOwnProperty;
@@ -45,12 +45,9 @@ function defaultOrderComparer(a: any, b: any): number {
  * (see writeTree), so Immer records them as one patch replacing the index.
  */
 function readTree(sortedMap: ISortedMap<any, any>): ISortedIndexNode {
-  // Keep every access to 'tree' quoted: Closure must preserve the name used
-  // by this descriptor lookup, including when creating and replacing it.
-  // On a draft, a property descriptor carries the stored value, where a plain
-  // read would create a draft of it. If something did draft it, nothing has
-  // modified it (it is only ever replaced), so the draft's original is current.
-  return originalOf(Object.getOwnPropertyDescriptor(sortedMap, 'tree')!.value);
+  // Keep every access to 'tree' quoted: Closure must preserve the name that
+  // readWhole looks up, including when creating and replacing it.
+  return readWhole(sortedMap, 'tree')!;
 }
 
 /**
@@ -132,7 +129,7 @@ export class SortedMapAdapter<K extends Key, V, O=any> {
 
   create(): ISortedMap<K, V, O> {
     const map = this.mapAdapter.create();
-    return { root: map.root, size: map.size, 'tree': this.index.empty() };
+    return { 'root': map['root'], size: map.size, 'tree': this.index.empty() };
   }
 
   get(sortedMap: ISortedMap<K ,V, O>, key: K): V|undefined {

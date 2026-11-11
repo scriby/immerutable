@@ -9,25 +9,42 @@
  * modern Immer, copies its parent), and every modified object is copied and
  * finalized property by property when the producer finishes:
  *
- * - A node is an array. Index 0 holds a string: its first character tags the
- *   node as a leaf ('L') or interior node ('I'), and character r + 1 holds the
- *   slot of the rank-r element, as a printable character counting from '0'
- *   (some stores reject the NUL character in persisted text). Inserting or removing an element writes its slot and
+ * - A node is an object with one property per position, not an array (see
+ *   slots.ts for why, and for the property names). Position 0 holds a string:
+ *   its first character tags the node as a leaf ('L') or interior node ('I'),
+ *   and character r + 1 holds the slot of the rank-r element, as a printable
+ *   character counting from '0' (some stores reject the NUL character in
+ *   persisted text). Inserting or removing an element writes its slot and
  *   replaces that string (a primitive), instead of shifting every later
  *   element through the draft, which would also draft each one. Freed slots
  *   are cleared and later reused, so elements never move.
- * - A leaf keeps the element in slot s at index 1 + s. An interior node keeps
- *   its leftmost child at index 1, the element in slot s at 2 + 2s, and the
- *   child to that element's right at 3 + 2s.
+ * - A leaf keeps the element in slot s at position 1 + s. An interior node
+ *   keeps its leftmost child at position 1, the element in slot s at 2 + 2s,
+ *   and the child to that element's right at 3 + 2s.
  * - Every element is stored once (a classic B-tree, not a B+ tree), so no
  *   separator copy can go stale when an element is mutated in place.
- *
- * Arrays rather than plain objects, because Immer copies objects with spread
- * syntax, which slows sharply once an application's varied state makes that
- * call site megamorphic. Arrays are copied with slice.
  */
 
-export interface IBTreeNode extends Array<any> {}
+import {checkLayout, readSlot, slotName} from './slots';
+
+export interface IBTreeNode {
+  [position: string]: any;
+}
+
+/**
+ * An object with the first count positions present (and undefined). Nodes are
+ * spread copies of one, so all nodes of a kind share a shape, which V8 copies
+ * fastest. It is parsed rather than built by assignment: V8 switches an
+ * object that gains many properties one by one to a dictionary, which Immer
+ * copies several times more slowly.
+ */
+function template(count: number): IBTreeNode {
+  const names: string[] = [];
+  for (let i = 0; i < count; i++) names.push(slotName(i));
+  const node: IBTreeNode = JSON.parse('{' + names.map(name => JSON.stringify(name) + ':null').join(',') + '}');
+  for (const name of names) node[name] = undefined;
+  return node;
+}
 
 /**
  * A root-to-element path: nodes[i] is entered through child rank ranks[i - 1],
@@ -101,6 +118,8 @@ function slotIndex(p: string, slot: number): number {
 export class BTree<T> {
   private readonly maxEntries: number;
   private readonly minEntries: number;
+  private readonly leafTemplate: IBTreeNode;
+  private readonly interiorTemplate: IBTreeNode;
 
   constructor(private comparers: ElementComparers<T>, maxItemsPerLevel: number) {
     if (maxItemsPerLevel % 2 === 1) throw new Error('maxItemsPerLevel must be even');
@@ -109,18 +128,34 @@ export class BTree<T> {
     // and their separator must fit: 2 * min + 1 <= max.
     this.maxEntries = maxItemsPerLevel - 1;
     this.minEntries = maxItemsPerLevel / 2 - 1;
+    // A node briefly holds one element more than the maximum, before it splits.
+    this.leafTemplate = template(this.maxEntries + 2);
+    this.interiorTemplate = template(2 * this.maxEntries + 4);
   }
 
   createRoot(): IBTreeNode {
-    return [LEAF];
+    return this.newNode(LEAF);
   }
 
-  /** Inserts value as a new element. Returns the (possibly new) root. */
-  insert(root: IBTreeNode, value: T): IBTreeNode {
+  /** A node with rank string p and nothing else. Every position is present, so all nodes of a kind share a shape. */
+  private newNode(p: string): IBTreeNode {
+    const node = isLeaf(p) ? {...this.leafTemplate} : {...this.interiorTemplate};
+    node[slotName(0)] = p;
+    return node;
+  }
+
+  /**
+   * Inserts value as a new element. Returns the (possibly new) root.
+   *
+   * @param searchRoot The same tree in a form that is cheaper to search: for a draft that nothing has modified, the
+   *                   root of the state under it, where comparing elements creates no drafts.
+   */
+  insert(root: IBTreeNode, value: T, searchRoot: IBTreeNode = root): IBTreeNode {
+    checkLayout(root);
     const nodes: IBTreeNode[] = [];
     const ranks: number[] = [];
-    let node = root;
-    let p: string = node[0];
+    let node = searchRoot;
+    let p: string = readSlot(node, 0);
     let rank: number;
 
     for (;;) {
@@ -129,28 +164,55 @@ export class BTree<T> {
       nodes.push(node);
       ranks.push(rank);
       node = this.childAt(node, p, rank);
-      p = node[0];
+      p = readSlot(node, 0);
+    }
+    // The search ran on undrafted state: draft only the nodes on the path.
+    if (searchRoot !== root) {
+      node = root;
+      for (let i = 0; i < ranks.length; i++) {
+        nodes[i] = node;
+        node = this.childAt(node, readSlot(node, 0), ranks[i]);
+      }
     }
 
     if (this.insertAt(node, p, rank, value, undefined).length - 1 <= this.maxEntries) return root;
     return this.splitUpwards(root, node, rank, nodes, ranks);
   }
 
-  /** Finds the element equal to value, or undefined. */
-  find(root: IBTreeNode, value: T): TreePath|undefined {
+  /**
+   * Finds the element equal to value, or undefined.
+   *
+   * @param equals Tests a stored element against the value, in place of the equality comparer.
+   */
+  find(root: IBTreeNode, value: T, equals?: (element: T, value: T) => boolean): TreePath|undefined {
+    checkLayout(root);
     const path: TreePath = { nodes: [], ranks: [] };
-    return this.findIn(root, value, path) ? path : undefined;
+    return this.findIn(root, value, path, equals) ? path : undefined;
+  }
+
+  /**
+   * The same path through another form of the same tree: for a path found in
+   * the state a draft was created from, the path through the draft. Walking
+   * it drafts the nodes on it, and no others.
+   */
+  retrace(root: IBTreeNode, path: TreePath): TreePath {
+    let node = root;
+    for (let i = 0; i < path.nodes.length; i++) {
+      if (i > 0) node = this.childAt(node, readSlot(node, 0), path.ranks[i - 1]);
+      path.nodes[i] = node;
+    }
+    return path;
   }
 
   /** The index of the element a path ends at, in the path's last node. */
   baseOf(path: TreePath): number {
     const last = path.nodes.length - 1;
-    return this.baseAt(path.nodes[last][0], path.ranks[last]);
+    return this.baseAt(readSlot(path.nodes[last], 0), path.ranks[last]);
   }
 
   /** Whether the element a path ends at is ordered correctly relative to its neighbours. */
   inOrder(path: TreePath): boolean {
-    const value: T = path.nodes[path.nodes.length - 1][this.baseOf(path)];
+    const value: T = readSlot(path.nodes[path.nodes.length - 1], this.baseOf(path));
     const before = this.neighbour(path, -1);
     if (before !== undefined && this.compare(value, before.node, before.base) < 0) return false;
     const after = this.neighbour(path, 1);
@@ -161,7 +223,7 @@ export class BTree<T> {
   remove(root: IBTreeNode, path: TreePath): IBTreeNode {
     const {nodes, ranks} = path;
     let node = nodes[nodes.length - 1];
-    let p: string = node[0];
+    let p: string = readSlot(node, 0);
     let rank = ranks[ranks.length - 1];
 
     if (!isLeaf(p)) {
@@ -169,16 +231,16 @@ export class BTree<T> {
       // of the subtree to its left, and remove that from its leaf instead.
       const base = this.baseAt(p, rank);
       let child = this.childAt(node, p, rank);
-      let childP: string = child[0];
+      let childP: string = readSlot(child, 0);
       while (!isLeaf(childP)) {
         const childRank = childP.length - 1;
         nodes.push(child);
         ranks.push(childRank);
         child = this.childAt(child, childP, childRank);
-        childP = child[0];
+        childP = readSlot(child, 0);
       }
       const leafRank = childP.length - 2;
-      node[base] = child[this.baseAt(childP, leafRank)];
+      node[slotName(base)] = readSlot(child, this.baseAt(childP, leafRank));
       nodes.push(child);
       ranks.push(leafRank);
       node = child;
@@ -192,14 +254,15 @@ export class BTree<T> {
 
   /** The first or last element, or undefined when empty. */
   edge(root: IBTreeNode, last: boolean): T|undefined {
+    checkLayout(root);
     let node = root;
-    let p: string = node[0];
+    let p: string = readSlot(node, 0);
     while (!isLeaf(p)) {
       node = this.childAt(node, p, last ? p.length - 1 : 0);
-      p = node[0];
+      p = readSlot(node, 0);
     }
     if (p.length === 1) return undefined;
-    return node[this.baseAt(p, last ? p.length - 2 : 0)];
+    return readSlot(node, this.baseAt(p, last ? p.length - 2 : 0));
   }
 
   /** Iterates elements in order (or reverse order). */
@@ -208,6 +271,7 @@ export class BTree<T> {
   }
 
   private iterator(root: IBTreeNode, backward: boolean): Iterator<T> {
+    checkLayout(root);
     const step = backward ? -1 : 1;
     // Ancestors, with the rank of the child currently being visited in each.
     const nodes: IBTreeNode[] = [];
@@ -218,14 +282,14 @@ export class BTree<T> {
     let rank = 0;
 
     const descend = (node: IBTreeNode) => {
-      let p: string = node[0];
+      let p: string = readSlot(node, 0);
       while (!isLeaf(p)) {
         const child = backward ? p.length - 1 : 0;
         nodes.push(node);
         perms.push(p);
         children.push(child);
         node = this.childAt(node, p, child);
-        p = node[0];
+        p = readSlot(node, 0);
       }
       leaf = node;
       leafP = p;
@@ -236,7 +300,7 @@ export class BTree<T> {
     return {
       next: (): IteratorResult<T> => {
         if (rank >= 0 && rank < leafP.length - 1) {
-          const value = leaf[1 + slotAt(leafP, rank + 1)];
+          const value = readSlot(leaf, 1 + slotAt(leafP, rank + 1));
           rank += step;
           return { value, done: false };
         }
@@ -250,7 +314,7 @@ export class BTree<T> {
           if (element >= 0 && element < p.length - 1) {
             const node = nodes[top];
             children[top] = child + step;
-            const value = node[2 + 2 * slotAt(p, element + 1)];
+            const value = readSlot(node, 2 + 2 * slotAt(p, element + 1));
             descend(this.childAt(node, p, child + step));
             return { value, done: false };
           }
@@ -264,7 +328,7 @@ export class BTree<T> {
   }
 
   private compare(value: T, node: IBTreeNode, base: number): number {
-    return this.comparers.orderComparer(value, node[base]);
+    return this.comparers.orderComparer(value, readSlot(node, base));
   }
 
   /** The index of the rank-r element of a node with rank string p. */
@@ -274,7 +338,7 @@ export class BTree<T> {
 
   /** The child left of the rank-r element (or right of the last element, for r = count). */
   private childAt(node: IBTreeNode, p: string, rank: number): IBTreeNode {
-    return rank === 0 ? node[1] : node[3 + 2 * slotAt(p, rank)];
+    return rank === 0 ? readSlot(node, 1) : readSlot(node, 3 + 2 * slotAt(p, rank));
   }
 
   private insertionRank(node: IBTreeNode, p: string, value: T): number {
@@ -298,8 +362,8 @@ export class BTree<T> {
     return low;
   }
 
-  private findIn(node: IBTreeNode, value: T, path: TreePath): boolean {
-    const p: string = node[0];
+  private findIn(node: IBTreeNode, value: T, path: TreePath, equals: ((element: T, value: T) => boolean)|undefined): boolean {
+    const p: string = readSlot(node, 0);
     const count = p.length - 1;
     const interior = !isLeaf(p);
     const start = this.search(node, p, value, 0, count - 1);
@@ -308,18 +372,18 @@ export class BTree<T> {
     // or in the subtrees between them.
     for (let rank = start; ; rank++) {
       const base = rank < count ? this.baseAt(p, rank) : -1;
-      if (base >= 0 && this.comparers.equalityComparer(node[base], value)) {
+      if (base >= 0 && this.matches(readSlot(node, base), value, equals)) {
         path.nodes.push(node);
         path.ranks.push(rank);
         return true;
       }
-      if (interior && this.findInChild(node, p, rank, value, path)) return true;
+      if (interior && this.findInChild(node, p, rank, value, path, equals)) return true;
       if (base < 0 || this.compare(value, node, base) !== 0) break;
     }
 
     for (let rank = start - 1; rank >= 0; rank--) {
       const base = this.baseAt(p, rank);
-      if (this.comparers.equalityComparer(node[base], value)) {
+      if (this.matches(readSlot(node, base), value, equals)) {
         path.nodes.push(node);
         path.ranks.push(rank);
         return true;
@@ -328,16 +392,20 @@ export class BTree<T> {
       // ties with the value. Descending without this check makes a miss
       // visit O(2^height) nodes.
       if (this.compare(value, node, base) !== 0) break;
-      if (interior && this.findInChild(node, p, rank, value, path)) return true;
+      if (interior && this.findInChild(node, p, rank, value, path, equals)) return true;
     }
 
     return false;
   }
 
-  private findInChild(node: IBTreeNode, p: string, rank: number, value: T, path: TreePath): boolean {
+  private matches(element: T, value: T, equals: ((element: T, value: T) => boolean)|undefined): boolean {
+    return equals === undefined ? this.comparers.equalityComparer(element, value) : equals(element, value);
+  }
+
+  private findInChild(node: IBTreeNode, p: string, rank: number, value: T, path: TreePath, equals: ((element: T, value: T) => boolean)|undefined): boolean {
     path.nodes.push(node);
     path.ranks.push(rank);
-    if (this.findIn(this.childAt(node, p, rank), value, path)) return true;
+    if (this.findIn(this.childAt(node, p, rank), value, path, equals)) return true;
     path.nodes.pop();
     path.ranks.pop();
     return false;
@@ -349,15 +417,15 @@ export class BTree<T> {
     const last = nodes.length - 1;
     const node = nodes[last];
     const rank = ranks[last];
-    const p: string = node[0];
+    const p: string = readSlot(node, 0);
 
     if (!isLeaf(p)) {
       // The extreme element of the adjacent subtree.
       let child = this.childAt(node, p, direction < 0 ? rank : rank + 1);
-      let childP: string = child[0];
+      let childP: string = readSlot(child, 0);
       while (!isLeaf(childP)) {
         child = this.childAt(child, childP, direction < 0 ? childP.length - 1 : 0);
-        childP = child[0];
+        childP = readSlot(child, 0);
       }
       return { node: child, base: this.baseAt(childP, direction < 0 ? childP.length - 2 : 0) };
     }
@@ -367,7 +435,7 @@ export class BTree<T> {
 
     // The nearest ancestor entered from a child other than its first (or last).
     for (let i = last - 1; i >= 0; i--) {
-      const ancestorP: string = nodes[i][0];
+      const ancestorP: string = readSlot(nodes[i], 0);
       const elementRank = direction < 0 ? ranks[i] - 1 : ranks[i];
       if (elementRank >= 0 && elementRank < ancestorP.length - 1) {
         return { node: nodes[i], base: this.baseAt(ancestorP, elementRank) };
@@ -383,35 +451,36 @@ export class BTree<T> {
   private insertAt(node: IBTreeNode, p: string, rank: number, value: T, rightChild: IBTreeNode|undefined): string {
     const slot = freeSlot(p);
     const base = slotIndex(p, slot);
-    node[base] = value;
-    if (!isLeaf(p)) node[base + 1] = rightChild;
-    return node[0] = withRank(p, rank, slot);
+    node[slotName(base)] = value;
+    if (!isLeaf(p)) node[slotName(base + 1)] = rightChild;
+    return node[slotName(0)] = withRank(p, rank, slot);
   }
 
   /**
    * Clears a slot and drops its rank. Slots are overwritten with undefined
-   * rather than deleted, so the array stays packed.
+   * rather than deleted, so the node keeps its shape.
    */
   private removeRank(node: IBTreeNode, p: string, rank: number): void {
     const base = this.baseAt(p, rank);
-    node[base] = undefined;
-    if (!isLeaf(p)) node[base + 1] = undefined;
-    node[0] = p.slice(0, rank + 1) + p.slice(rank + 2);
+    node[slotName(base)] = undefined;
+    if (!isLeaf(p)) node[slotName(base + 1)] = undefined;
+    node[slotName(0)] = p.slice(0, rank + 1) + p.slice(rank + 2);
   }
 
   private splitUpwards(root: IBTreeNode, node: IBTreeNode, insertedRank: number, nodes: IBTreeNode[], ranks: number[]): IBTreeNode {
-    for (let depth = nodes.length; (node[0] as string).length - 1 > this.maxEntries; ) {
+    for (let depth = nodes.length; (readSlot(node, 0) as string).length - 1 > this.maxEntries; ) {
       const {right, median} = this.split(node, insertedRank);
 
       if (depth === 0) {
-        const newRoot: IBTreeNode = [INTERIOR, node];
+        const newRoot = this.newNode(INTERIOR);
+        newRoot[slotName(1)] = node;
         this.insertAt(newRoot, INTERIOR, 0, median, right);
         return newRoot;
       }
 
       const parent = nodes[--depth];
       const rank = ranks[depth];
-      this.insertAt(parent, parent[0], rank, median, right);
+      this.insertAt(parent, readSlot(parent, 0), rank, median, right);
       node = parent;
       insertedRank = rank;
     }
@@ -420,7 +489,7 @@ export class BTree<T> {
 
   /** Splits an overfull node around a median element, moving the elements after it into a new node. */
   private split(node: IBTreeNode, insertedRank: number): {right: IBTreeNode, median: T} {
-    const p: string = node[0];
+    const p: string = readSlot(node, 0);
     const count = p.length - 1;
     const leaf = isLeaf(p);
     const width = leaf ? 1 : 2;
@@ -432,19 +501,20 @@ export class BTree<T> {
       : insertedRank === 0 ? 1
       : count >> 1;
     const medianBase = this.baseAt(p, median);
-    const medianValue: T = node[medianBase];
-    const right: IBTreeNode = [denseRanks(p.charAt(0), count - 1 - median)];
-    if (!leaf) right.push(node[medianBase + 1]);
+    const medianValue: T = readSlot(node, medianBase);
+    const right = this.newNode(denseRanks(p.charAt(0), count - 1 - median));
+    let next = 1;
+    if (!leaf) right[slotName(next++)] = readSlot(node, medianBase + 1);
 
     for (let rank = median + 1; rank < count; rank++) {
       const base = this.baseAt(p, rank);
       for (let k = 0; k < width; k++) {
-        right.push(node[base + k]);
-        node[base + k] = undefined;
+        right[slotName(next++)] = readSlot(node, base + k);
+        node[slotName(base + k)] = undefined;
       }
     }
-    for (let k = 0; k < width; k++) node[medianBase + k] = undefined;
-    node[0] = p.slice(0, median + 1);
+    for (let k = 0; k < width; k++) node[slotName(medianBase + k)] = undefined;
+    node[slotName(0)] = p.slice(0, median + 1);
     return { right, median: medianValue };
   }
 
@@ -454,19 +524,19 @@ export class BTree<T> {
 
     for (let i = nodes.length - 1; i > 0; i--) {
       const node = nodes[i];
-      const nodeP: string = node[0];
+      const nodeP: string = readSlot(node, 0);
       if (nodeP.length - 1 >= min) break;
 
       const parent = nodes[i - 1];
-      const parentP: string = parent[0];
+      const parentP: string = readSlot(parent, 0);
       const childRank = ranks[i - 1];
       const right = childRank < parentP.length - 1 ? this.childAt(parent, parentP, childRank + 1) : undefined;
-      if (right !== undefined && (right[0] as string).length - 1 > min) {
+      if (right !== undefined && (readSlot(right, 0) as string).length - 1 > min) {
         this.rotateLeft(parent, parentP, childRank, node, nodeP, right);
         break;
       }
       const left = childRank > 0 ? this.childAt(parent, parentP, childRank - 1) : undefined;
-      if (left !== undefined && (left[0] as string).length - 1 > min) {
+      if (left !== undefined && (readSlot(left, 0) as string).length - 1 > min) {
         this.rotateRight(parent, parentP, childRank - 1, left, node, nodeP);
         break;
       }
@@ -475,53 +545,53 @@ export class BTree<T> {
     }
 
     // A root emptied by a merge hands over to its only child.
-    const rootP: string = root[0];
-    return rootP.length === 1 && !isLeaf(rootP) ? root[1] : root;
+    const rootP: string = readSlot(root, 0);
+    return rootP.length === 1 && !isLeaf(rootP) ? readSlot(root, 1) : root;
   }
 
   /** Moves the separator down into node and the right sibling's first element up. */
   private rotateLeft(parent: IBTreeNode, parentP: string, separatorRank: number, node: IBTreeNode, nodeP: string, right: IBTreeNode): void {
     const separatorBase = this.baseAt(parentP, separatorRank);
-    const rightP: string = right[0];
+    const rightP: string = readSlot(right, 0);
     const rightBase = this.baseAt(rightP, 0);
     let movedChild: IBTreeNode|undefined;
     if (!isLeaf(rightP)) {
-      movedChild = right[1];
-      right[1] = right[rightBase + 1];
+      movedChild = readSlot(right, 1);
+      right[slotName(1)] = readSlot(right, rightBase + 1);
     }
-    this.insertAt(node, nodeP, nodeP.length - 1, parent[separatorBase], movedChild);
-    parent[separatorBase] = right[rightBase];
+    this.insertAt(node, nodeP, nodeP.length - 1, readSlot(parent, separatorBase), movedChild);
+    parent[slotName(separatorBase)] = readSlot(right, rightBase);
     this.removeRank(right, rightP, 0);
   }
 
   /** Moves the separator down into node and the left sibling's last element up. */
   private rotateRight(parent: IBTreeNode, parentP: string, separatorRank: number, left: IBTreeNode, node: IBTreeNode, nodeP: string): void {
     const separatorBase = this.baseAt(parentP, separatorRank);
-    const leftP: string = left[0];
+    const leftP: string = readSlot(left, 0);
     const leftRank = leftP.length - 2;
     const leftBase = this.baseAt(leftP, leftRank);
-    const separator: T = parent[separatorBase];
+    const separator: T = readSlot(parent, separatorBase);
     if (isLeaf(leftP)) {
       this.insertAt(node, nodeP, 0, separator, undefined);
     } else {
-      const movedChild: IBTreeNode = left[leftBase + 1];
-      this.insertAt(node, nodeP, 0, separator, node[1]);
-      node[1] = movedChild;
+      const movedChild: IBTreeNode = readSlot(left, leftBase + 1);
+      this.insertAt(node, nodeP, 0, separator, readSlot(node, 1));
+      node[slotName(1)] = movedChild;
     }
-    parent[separatorBase] = left[leftBase];
+    parent[slotName(separatorBase)] = readSlot(left, leftBase);
     this.removeRank(left, leftP, leftRank);
   }
 
   /** Appends the separator and all of `right` to `left`, then drops the separator from the parent. */
   private merge(parent: IBTreeNode, parentP: string, separatorRank: number, left: IBTreeNode, right: IBTreeNode): void {
-    const rightP: string = right[0];
+    const rightP: string = readSlot(right, 0);
     const interior = !isLeaf(rightP);
-    let leftP: string = left[0];
-    leftP = this.insertAt(left, leftP, leftP.length - 1, parent[this.baseAt(parentP, separatorRank)], interior ? right[1] : undefined);
+    let leftP: string = readSlot(left, 0);
+    leftP = this.insertAt(left, leftP, leftP.length - 1, readSlot(parent, this.baseAt(parentP, separatorRank)), interior ? readSlot(right, 1) : undefined);
 
     for (let rank = 0; rank < rightP.length - 1; rank++) {
       const base = this.baseAt(rightP, rank);
-      leftP = this.insertAt(left, leftP, leftP.length - 1, right[base], interior ? right[base + 1] : undefined);
+      leftP = this.insertAt(left, leftP, leftP.length - 1, readSlot(right, base), interior ? readSlot(right, base + 1) : undefined);
     }
     this.removeRank(parent, parentP, separatorRank);
   }

@@ -1,6 +1,7 @@
 import produce, {mutate} from './test-support/immer';
 import * as hash from './hash';
 import {IMap, Key, MapAdapter} from './map';
+import {isDraft, untouched} from './util';
 
 describe('map', () => {
   const range = (start: number, end: number) => new Array(end - start + 1).join().split(',').map((empty, i) => i + start);
@@ -786,9 +787,9 @@ describe('map', () => {
       expect(Array.from(adapter.getIterable(map))).toEqual([[collidingKey(0), 0]]);
       expect(adapter.getSize(map)).toBe(1);
       // Removed keys must not be retained in the stored structure.
-      const storedEntries = (node: any): number => Array.isArray(node)
-        ? node.reduce((count: number, child: any) => count + (child == null ? 0 : storedEntries(child)), 0)
-        : 'key' in node ? 1 : Object.keys(node.map).length;
+      const storedEntries = (node: any): number => 'key' in node ? 1
+        : 'map' in node ? Object.keys(node.map).length
+        : Object.keys(node).reduce((count: number, slot: string) => count + (node[slot] == null ? 0 : storedEntries(node[slot])), 0);
       expect(storedEntries(map.root)).toBe(1);
     };
 
@@ -804,5 +805,142 @@ describe('map', () => {
       const map = produce(adapter.create(), draft => churn(adapter, draft));
       expectBounded(adapter, map);
     });
+  });
+
+  describe('presence checks inside a producer', () => {
+    // Presence is read from the state a draft was created from until the
+    // draft's keys change. These cover the points where that must stop.
+    const adapter = new MapAdapter<number, {count: number}>();
+    const filled = () => {
+      const map = adapter.create();
+      for (let i = 0; i < 200; i++) adapter.set(map, i, {count: i});
+      return produce(map, () => {});
+    };
+
+    it('sees keys added and removed earlier in the same producer', () => {
+      const map = filled();
+      const next = produce(map, draft => {
+        expect(adapter.has(draft, 7)).toBe(true);
+        expect(adapter.has(draft, 999)).toBe(false);
+        expect(adapter.get(draft, 999)).toBeUndefined();
+
+        adapter.remove(draft, 7);
+        adapter.set(draft, 999, {count: 999});
+
+        expect(adapter.has(draft, 7)).toBe(false);
+        expect(adapter.get(draft, 7)).toBeUndefined();
+        expect(adapter.update(draft, 7, () => ({count: -1}))).toBeUndefined();
+        expect(adapter.has(draft, 999)).toBe(true);
+        expect(adapter.get(draft, 999)).toEqual({count: 999});
+        expect(adapter.has(draft, 8)).toBe(true);
+        expect(adapter.keysAsReadonlySet(draft).has(7)).toBe(false);
+      });
+
+      expect(adapter.has(map, 7)).toBe(true);
+      expect(adapter.has(next, 7)).toBe(false);
+      expect(adapter.has(next, 999)).toBe(true);
+      expect(adapter.getSize(next)).toBe(200);
+    });
+
+    it('checks presence without reading the trie through the draft', () => {
+      const map = filled();
+      produce(map, draft => {
+        expect(adapter.has(draft, 7)).toBe(true);
+        expect(adapter.has(draft, 999)).toBe(false);
+        expect(adapter.keysAsReadonlySet(draft).has(8)).toBe(true);
+        // Nothing has read the root through the draft, so nothing was drafted.
+        expect(untouched(draft, 'root')).toBe(map.root);
+
+        adapter.get(draft, 7);
+        expect(untouched(draft, 'root')).toBeUndefined();
+        expect(adapter.has(draft, 7)).toBe(true);
+      });
+    });
+
+    it('drafts only the slots an unfinished iteration has reached', () => {
+      const map = filled();
+      produce(map, draft => {
+        for (const [key] of adapter.getIterable(draft)) {
+          expect(typeof key).toBe('number');
+          break;
+        }
+        // The root was read through the draft, slot by slot, up to the first entry.
+        const root = draft.root;
+        const held = (slot: string) => Object.getOwnPropertyDescriptor(root, slot)!.value;
+        expect(isDraft(held('#0'))).toBe(true);
+        expect(held('#f') === map.root['#f']).toBe(true);
+        expect(isDraft(held('#f'))).toBe(false);
+      });
+    });
+
+    it('returns the same state from a producer that only checks presence or misses', () => {
+      const map = filled();
+      const next = produce(map, draft => {
+        adapter.has(draft, 1);
+        adapter.has(draft, 1000);
+        adapter.get(draft, 1000);
+        adapter.remove(draft, 1000);
+        adapter.update(draft, 1000, () => ({count: 0}));
+      });
+      expect(next).toBe(map);
+    });
+
+    it('sees the changes of an outer producer from a nested one, and its own', () => {
+      const state = produce({map: filled()}, () => {});
+      const next = produce(state, outer => {
+        adapter.remove(outer.map, 3);
+        adapter.set(outer.map, 500, {count: 500});
+        outer.map = produce(outer.map, inner => {
+          expect(adapter.has(inner, 3)).toBe(false);
+          expect(adapter.has(inner, 500)).toBe(true);
+          expect(adapter.has(inner, 4)).toBe(true);
+          adapter.remove(inner, 4);
+          adapter.set(inner, 501, {count: 501});
+          expect(adapter.has(inner, 4)).toBe(false);
+          expect(adapter.has(inner, 501)).toBe(true);
+        });
+        expect(adapter.has(outer.map, 4)).toBe(false);
+        expect(adapter.has(outer.map, 501)).toBe(true);
+      });
+      expect([3, 4, 5, 500, 501].map(key => adapter.has(next.map, key))).toEqual([false, false, true, true, true]);
+      expect([3, 4, 5, 500, 501].map(key => adapter.has(state.map, key))).toEqual([true, true, true, false, false]);
+    });
+
+    it('checks a nested producer against an outer draft that has not changed', () => {
+      const state = produce({map: filled()}, () => {});
+      const next = produce(state, outer => {
+        outer.map = produce(outer.map, inner => {
+          expect(adapter.has(inner, 3)).toBe(true);
+          expect(adapter.has(inner, 500)).toBe(false);
+          adapter.get(inner, 3)!.count = -3;
+        });
+      });
+      expect(adapter.get(next.map, 3)).toEqual({count: -3});
+      expect(adapter.get(state.map, 3)).toEqual({count: 3});
+    });
+  });
+
+  it('rejects an undefined key, which could not be told from an empty slot', () => {
+    const adapter = new MapAdapter<any, string>();
+    const map = adapter.create();
+    expect(() => adapter.set(map, undefined, 'u')).toThrow(TypeError);
+    expect(adapter.getSize(map)).toBe(0);
+    expect(Array.from(adapter.getIterable(map))).toEqual([]);
+  });
+
+  it('stores trie nodes as objects whose slots survive a JSON round trip', () => {
+    const adapter = new MapAdapter<number, number>();
+    const map = adapter.create();
+    for (let i = 0; i < 300; i++) adapter.set(map, i, i);
+    for (let i = 0; i < 300; i += 3) adapter.remove(map, i);
+
+    const restored: typeof map = JSON.parse(JSON.stringify(map));
+
+    expect(Array.isArray(map.root)).toBe(false);
+    expect(Object.keys(map.root).every(slot => /^#[0-9a-f]$/.test(slot))).toBe(true);
+    expect(Array.from(adapter.getIterable(restored))).toEqual(Array.from(adapter.getIterable(map)));
+    const next = produce(restored, draft => { adapter.set(draft, 0, 0); adapter.remove(draft, 1); });
+    expect(adapter.getSize(next)).toBe(200);
+    expect(adapter.has(next, 0) && !adapter.has(next, 1) && adapter.has(next, 2)).toBe(true);
   });
 });

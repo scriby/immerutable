@@ -1,4 +1,5 @@
-import {createReadonlySet, iterableToIterableIterator, mapIterable} from './util';
+import {applyPatches, enablePatches, produce, produceWithPatches} from 'immer';
+import {createReadonlySet, iterableToIterableIterator, mapIterable, untouched} from './util';
 
 function trackedIterable() {
   const next = jest.fn((): IteratorResult<number> => ({value: 1, done: false}));
@@ -102,5 +103,53 @@ describe('Readonly iterator protocol', () => {
     expect(limited.take(2).toArray()).toEqual([1, 1]);
     expect(tracked.close).toHaveBeenCalledTimes(1);
     expect(limited.next().done).toBe(true);
+  });
+});
+
+describe('untouched', () => {
+  const base = produce({a: {b: {c: 1}}, list: [{n: 1}]}, () => {});
+
+  it('is undefined for an owner that is not a draft', () => {
+    expect(untouched(base, 'a')).toBeUndefined();
+  });
+
+  it('gives the original value of a property until it is read through the draft or replaced', () => {
+    produce(base, draft => {
+      expect(untouched(draft, 'a')).toBe(base.a);
+      expect(untouched(draft, 'a')).toBe(base.a);   // asking does not touch it
+      expect(untouched(draft, 'list')).toBe(base.list);
+
+      // A read through the draft hands out a draft of the value, which may then be modified.
+      expect(draft.a.b.c).toBe(1);
+      expect(untouched(draft, 'a')).toBeUndefined();
+      expect(untouched(draft, 'list')).toBe(base.list);
+      expect(untouched(draft.a, 'b')).toBeUndefined();
+
+      draft.list = [];
+      expect(untouched(draft, 'list')).toBeUndefined();
+    });
+  });
+
+  it('sees a value replaced by patches', () => {
+    enablePatches();
+    const [, patches] = produceWithPatches(base, draft => { draft.a = {b: {c: 2}}; });
+    produce(base, draft => {
+      expect(untouched(draft, 'a')).toBe(base.a);
+      applyPatches(draft, patches);
+      expect(untouched(draft, 'a')).toBeUndefined();
+      expect(untouched(draft, 'list')).toBe(base.list);
+    });
+  });
+
+  it('gives a nested producer the current value in the outer draft, never a stale one', () => {
+    produce(base, outer => {
+      outer.a.b.c = 5;
+      produce(outer, inner => {
+        const value = untouched(inner, 'a');
+        // Not the original state, which the outer producer has changed.
+        expect(value).not.toBe(base.a);
+        expect(value === undefined || value.b.c === 5).toBe(true);
+      });
+    });
   });
 });

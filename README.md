@@ -17,26 +17,27 @@ a 30-40x+ speedup over basic arrays and objects with Immer (the larger the objec
 ## Benchmarks
 
 All [benchmarks](benchmark/benchmark.ts) are the time to perform 4,000 operations, each in its own Immer producer.
-For instance, 4,000 individual insertions into a map or array. Measured with Immer 11 (production build) on Node 24.
+For instance, 4,000 individual insertions into a map or array. Measured with Immer 11 (production build) on Node 24;
+each time is the fastest of five runs.
 
 |benchmark|time|
 |---------|----|
-|immer map (set)|2905ms|
-|immerutable map (set)|55ms|
+|immer map (set)|3151ms|
+|immerutable map (set)|38ms|
 |||
-|immer array (insert in increasing order)|686ms|
-|immer array (insert in random order)|4909ms|
-|immer array (insert in decreasing order)|8882ms|
-|immerutable sorted collection (insert in increasing order)|74ms|
-|immerutable sorted collection (insert in random order)|115ms|
-|immerutable sorted collection (insert in decreasing order)|95ms|
+|immer array (insert in increasing order)|715ms|
+|immer array (insert in random order)|5124ms|
+|immer array (insert in decreasing order)|9354ms|
+|immerutable sorted collection (insert in increasing order)|48ms|
+|immerutable sorted collection (insert in random order)|55ms|
+|immerutable sorted collection (insert in decreasing order)|48ms|
 |||
-|immerutable sorted map (insert in increasing order)|82ms|
-|immerutable sorted map (insert in random order)|76ms|
-|immerutable sorted map (insert in decreasing order)|73ms|
+|immerutable sorted map (insert in increasing order)|63ms|
+|immerutable sorted map (insert in random order)|64ms|
+|immerutable sorted map (insert in decreasing order)|57ms|
 |||
-|immerutable lru cache set (max items = 2000)|102ms|
-|immerutable lru cache set (max items = 400)|106ms|
+|immerutable lru cache set (max items = 2000)|77ms|
+|immerutable lru cache set (max items = 400)|75ms|
 
 For more detailed, repeatable measurements (per-operation timings at several sizes, with and without Immer), see
 [benchmark/review.ts](benchmark/review.ts).
@@ -59,10 +60,20 @@ to each method.
 This library targets modern Immer (version 10 or later). Immer's ES5 mode (`setUseProxies(false)` in Immer 9 and
 earlier) is not supported.
 
-If you use Immer patches: a sorted map or LRU cache keeps its ordering in a structure that is replaced as a whole on
-each change, so its patches replace that structure. Recording them is cheap, but `applyPatches` copies the replaced
-value, so a patch's size and the time to apply it grow with the collection. Immer's copy skips symbol-keyed properties,
-so a sorted map whose comparer reads symbol-keyed properties of its ordering keys cannot be used with `applyPatches`.
+If you use Immer patches: a sorted map keeps its ordering in a structure that is replaced as a whole on each change,
+so its patches replace that structure. An LRU cache keeps two such structures, and replaces both whenever an entry is
+used, including by `get`. Recording these patches is cheap, but `applyPatches` copies the replaced value, so a patch's
+size and the time to apply it grow with the collection. Immer's copy skips symbol-keyed properties, so a sorted map
+whose comparer reads symbol-keyed properties of its ordering keys cannot be used with `applyPatches`.
+
+The stored layout of every collection changed in version 4. State saved by an earlier version (for example in local
+storage) is not converted, and must be rebuilt from application data. Given state saved by version 3, the operations
+that read or change entries throw an error rather than misread it (iterating an empty sorted map or LRU cache still
+yields nothing).
+
+`setUseStrictShallowCopy(true)` is not supported together with a nested producer whose result is assigned back into
+the outer draft (`draft.map = produce(draft.map, ...)`): Immer's strict copy leaves parts of the earlier state in the
+result, where a later change would reach them.
 
 Example reducer using an Immerutable Sorted Map:
 
@@ -216,6 +227,9 @@ interface TestObject {
 // Create an adapter to work with the sorted collection.
 const adapter = new SortedCollectionAdapter<TestObject>({
   orderComparer: (a, b) => a.order - b.order,
+  // Optional. By default an item is found by passing the stored object itself
+  // (or, inside a producer, a draft of it). Either way, what is passed must
+  // have the item's current order.
   equalityComparer: (a, b) => a.id === b.id,
 });
 

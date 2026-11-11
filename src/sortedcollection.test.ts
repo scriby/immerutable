@@ -1,5 +1,7 @@
 import produce from './test-support/immer';
+import {isDraft} from 'immer';
 import {SortedCollectionAdapter} from './sortedcollection';
+import {untouched} from './util';
 
 interface TestObject {
   key: string;
@@ -602,6 +604,183 @@ describe('B-tree', () => {
       expect(items[items.length - 1]).toEqual({id: 3, o: 100});
       expect(items.map(item => item.o)).toEqual([...items.map(item => item.o)].sort((a, b) => a - b));
     });
+  });
+
+  describe('searches inside a producer', () => {
+    type Item = {id: number, o: number};
+
+    it('compares against the items of the original state, and reads the root only once an item is found', () => {
+      const comparedWithDraft: boolean[] = [];
+      const adapter = new SortedCollectionAdapter<Item>({
+        orderComparer: (a, b) => { comparedWithDraft.push(isDraft(b)); return a.o - b.o; },
+        equalityComparer: (a, b) => a.id === b.id,
+        maxItemsPerLevel: 4,
+      });
+      const collection = produce(adapter.create(), draft => { for (let i = 0; i < 60; i++) adapter.insert(draft, {id: i, o: i}); });
+      comparedWithDraft.length = 0;
+
+      // The first call of a producer searches the original state, whichever call it is.
+      produce(collection, draft => { adapter.insert(draft, {id: 200, o: 30.5}); });
+      expect(comparedWithDraft.length).toBeGreaterThan(0);
+      expect(comparedWithDraft).not.toContain(true);
+      comparedWithDraft.length = 0;
+
+      const next = produce(collection, draft => {
+        adapter.remove(draft, {id: -1, o: 30.5});
+        // A search that finds nothing leaves the tree unread through the draft.
+        expect(untouched(draft, 'root')).toBe(collection.root);
+
+        let comparisonsToFind = 0;
+        adapter.update(draft, {id: 40, o: 40}, item => {
+          comparisonsToFind = comparedWithDraft.length;
+          item.o = 5.5;
+        });
+        expect(comparisonsToFind).toBeGreaterThan(0);
+        expect(comparedWithDraft.slice(0, comparisonsToFind)).not.toContain(true);
+        expect(untouched(draft, 'root')).toBeUndefined();
+
+        // Later searches go through the draft, and see the change.
+        adapter.remove(draft, {id: 40, o: 5.5});
+        adapter.insert(draft, {id: 100, o: 5.25});
+      });
+
+      expect(Array.from(adapter.getIterable(next)).map(item => item.id))
+        .toEqual([0, 1, 2, 3, 4, 5, 100, ...Array.from({length: 54}, (_, i) => i + 6).filter(id => id !== 40)]);
+      expect(Array.from(adapter.getIterable(collection)).map(item => item.id)).toEqual(Array.from({length: 60}, (_, i) => i));
+    });
+  });
+
+  it('leaves equality to a custom comparer alone, even for the very object stored', () => {
+    type Item = {id: number, o: number};
+    // Never equal: with the default comparer's exact-match pass, the stored object would be found.
+    const adapter = new SortedCollectionAdapter<Item>({orderComparer: (a, b) => a.o - b.o, equalityComparer: () => false, maxItemsPerLevel: 4});
+    const collection = produce(adapter.create(), draft => { for (let i = 0; i < 10; i++) adapter.insert(draft, {id: i, o: i}); });
+    const items = Array.from(adapter.getIterable(collection));
+
+    const next = produce(collection, draft => {
+      adapter.remove(draft, items[3]);
+      expect(adapter.update(draft, adapter.getFirst(draft)!, item => { item.o = 99; })).toBeUndefined();
+    });
+    adapter.remove(collection, items[4]);
+
+    expect(next).toBe(collection);
+    expect(adapter.getSize(collection)).toBe(10);
+  });
+
+  describe('default equality inside a producer', () => {
+    // A search reads items from the state under an untouched draft, and
+    // through the draft afterwards, so the default comparer must treat an
+    // item and a draft of it as the same item.
+    type Item = {id: number, o: number};
+    const adapter = new SortedCollectionAdapter<Item>({orderComparer: (a, b) => a.o - b.o, maxItemsPerLevel: 4});
+    const filled = () => produce(adapter.create(), draft => { for (let i = 0; i < 40; i++) adapter.insert(draft, {id: i, o: i}); });
+
+    it('finds an item given the object stored in the state, before and after other calls', () => {
+      const collection = filled();
+      const items = Array.from(adapter.getIterable(collection));
+      const next = produce(collection, draft => {
+        adapter.remove(draft, items[5]);
+        adapter.remove(draft, items[6]);
+        expect(adapter.update(draft, items[7], item => { item.o = 100; })!.id).toBe(7);
+        adapter.remove(draft, {id: 8, o: 8}); // an equal-looking object is not the stored item
+      });
+      expect(Array.from(adapter.getIterable(next)).map(item => item.id))
+        .toEqual([...items.map(item => item.id).filter(id => id !== 5 && id !== 6 && id !== 7), 7]);
+      expect(adapter.getSize(collection)).toBe(40);
+    });
+
+    it('finds an item given the draft it was handed out as', () => {
+      const collection = filled();
+      const next = produce(collection, draft => {
+        const first = adapter.getFirst(draft)!;
+        adapter.update(draft, first, item => { item.o = 50; });
+        adapter.remove(draft, adapter.getLast(draft)!);
+        for (const item of adapter.getIterable(draft)) {
+          if (item.id === 3) { adapter.remove(draft, item); break; }
+        }
+      });
+      expect(Array.from(adapter.getIterable(next)).map(item => item.id))
+        .toEqual(Array.from({length: 39}, (_, i) => i + 1).filter(id => id !== 3));
+    });
+
+    it('finds an item given the object stored in the state after the tree has grown a new root', () => {
+      const small = produce(adapter.create(), draft => { for (let i = 0; i < 3; i++) adapter.insert(draft, {id: i, o: i}); });
+      const items = Array.from(adapter.getIterable(small));
+      const next = produce(small, draft => {
+        // The new root is a plain object holding drafts of the old items.
+        for (let i = 3; i < 12; i++) adapter.insert(draft, {id: i, o: i});
+        adapter.remove(draft, items[1]);
+      });
+      expect(Array.from(adapter.getIterable(next)).map(item => item.id)).toEqual([0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    });
+
+    it('finds an item given the object stored in the state from a nested producer, after the outer one gave the tree a new root', () => {
+      const small = produce(adapter.create(), draft => { for (let i = 0; i < 3; i++) adapter.insert(draft, {id: i, o: i}); });
+      const items = Array.from(adapter.getIterable(small));
+      const next = produce({collection: small}, outer => {
+        // The fourth item splits the root: the new one is a plain object holding the outer producer's drafts.
+        adapter.insert(outer.collection, {id: 3, o: 3});
+        outer.collection = produce(outer.collection, inner => { adapter.remove(inner, items[0]); });
+      });
+      expect(Array.from(adapter.getIterable(next.collection)).map(item => item.id)).toEqual([1, 2, 3]);
+    });
+
+    it('finds an item given the object stored in the state in a collection created inside the producer', () => {
+      const state = produce({list: [{id: 0, o: 0}, {id: 1, o: 1}], collection: adapter.create()}, () => {});
+      const next = produce(state, outer => {
+        // A plain collection holding drafts of the listed items.
+        const created = adapter.create();
+        for (const item of outer.list) adapter.insert(created, item);
+        adapter.remove(created, state.list[0]);
+        outer.collection = produce(created, inner => { adapter.remove(inner, state.list[1]); });
+      });
+      expect(Array.from(adapter.getIterable(next.collection))).toEqual([]);
+      expect(adapter.getSize(next.collection)).toBe(0);
+      expect(next.list).toBe(state.list);
+    });
+
+    it('removes the occurrence it was given when the same object is stored twice', () => {
+      const shared = {id: 7, o: 7};
+      const collection = produce(adapter.create(), draft => {
+        adapter.insert(draft, shared);
+        adapter.insert(draft, shared);
+        adapter.insert(draft, {id: 1, o: 1});
+      });
+      const next = produce(collection, draft => {
+        // Each occurrence has its own draft; both are drafts of the same object.
+        const [, first, second] = Array.from(adapter.getIterable(draft)) as Array<Item & {tag?: string}>;
+        first.tag = 'kept';
+        adapter.remove(draft, second);
+      });
+      expect(Array.from(adapter.getIterable(next))).toEqual([{id: 1, o: 1}, {id: 7, o: 7, tag: 'kept'}]);
+    });
+
+    it('finds an item given a draft of the same object reached another way', () => {
+      const collection = filled();
+      const state = produce({collection, selected: adapter.getFirst(collection)!}, () => {});
+      const next = produce(state, draft => { adapter.remove(draft.collection, draft.selected); });
+      expect(adapter.getSize(next.collection)).toBe(39);
+      expect(adapter.getFirst(next.collection)!.id).toBe(1);
+    });
+  });
+
+  it('stores nodes as objects, and keeps undefined items through a JSON round trip', () => {
+    const adapter = new SortedCollectionAdapter<number|undefined>({
+      orderComparer: (a, b) => (a === undefined ? 50 : a) - (b === undefined ? 50 : b), maxItemsPerLevel: 4,
+    });
+    const collection = adapter.create();
+    for (let i = 0; i < 100; i++) adapter.insert(collection, i === 50 ? undefined : i);
+
+    const restored: typeof collection = JSON.parse(JSON.stringify(collection));
+
+    expect(Array.isArray(collection.root)).toBe(false);
+    expect(Array.from(adapter.getIterable(restored))).toEqual(Array.from(adapter.getIterable(collection)));
+    const next = produce(restored, draft => {
+      adapter.remove(draft, undefined);
+      adapter.insert(draft, 49.5);
+      adapter.remove(draft, 0);
+    });
+    expect(Array.from(adapter.getIterable(next))).toEqual([...Array.from({length: 49}, (_, i) => i + 1), 49.5, ...Array.from({length: 49}, (_, i) => i + 51)]);
   });
 
   it('keeps NUL characters out of its stored state', () => {

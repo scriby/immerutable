@@ -179,3 +179,43 @@ export function lazyIterable<T>(create: () => Iterable<T>): Iterable<T> {
 export function sameValueZero<T>(a: T, b: T): boolean {
   return a === b || (a !== a && b !== b);
 }
+
+/**
+ * Reads a property whose value is only ever replaced as a whole, never
+ * changed in place (a sorted index), without creating a draft of it. On a
+ * draft, a property descriptor carries the stored value, where a plain read
+ * would create a draft of it. If something else did draft the value (a
+ * nested producer does), nothing has modified that draft, so its original is
+ * current. Undefined if the owner has no such property.
+ *
+ * The property must be quoted wherever it is used, so that a minifier keeps
+ * the name this looks up.
+ */
+export function readWhole<T extends object, P extends keyof T>(owner: T, property: P): T[P]|undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(owner, property);
+  return descriptor === undefined ? undefined : originalOf(descriptor.value);
+}
+
+/**
+ * For a draft: the value a property had in the state the draft was created
+ * from, provided nothing has replaced it and nothing has read it through the
+ * draft. Undefined otherwise, and for an owner that is not a draft.
+ *
+ * Everything below such a value is unchanged too: changing it would have
+ * needed a draft of the value, and Immer creates one only when the property
+ * is read through the owner (after which this returns undefined). So it can
+ * be read in place of the draft's own value, which creates no drafts, and so
+ * no copies of the objects read. This holds however changes are made: by an
+ * adapter, through a draft an adapter handed out, or by applying patches.
+ *
+ * In a nested producer the owner's original is the outer producer's draft, so
+ * the value is read through that draft: it is current, but it is itself a
+ * draft, and reading it creates drafts in the outer producer.
+ */
+export function untouched<T extends object, P extends keyof T>(owner: T, property: P): T[P]|undefined {
+  if (!isDraft(owner)) return undefined;
+  const value = (original(owner as any) as T)[property];
+  // A property descriptor of a draft carries the value the draft holds,
+  // where a plain read would create (and return) a draft of it.
+  return Object.getOwnPropertyDescriptor(owner, property)!.value === value ? value : undefined;
+}

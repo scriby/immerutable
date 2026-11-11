@@ -1,5 +1,87 @@
 # Changelog
 
+## Unreleased
+
+These changes break stored state and some behaviour, so the next release is a
+major version (4.0.0).
+
+- **Storage-format change:** maps, sorted maps, sorted collections and LRU
+  caches use new internal layouts. State saved by an earlier version is not
+  converted and must be rebuilt from application data. Given state saved by
+  version 3, every operation that reads or changes entries throws an error
+  ("stored by immerutable 3 or earlier") instead of misreading it. `getSize`,
+  iterating only the keys of a sorted map or LRU cache, and iterating or
+  taking the first or last entry of an empty one do not check.
+  - Map trie nodes and sorted-collection B-tree nodes are objects with named
+    slots (`#0`, `#1`, ...) instead of arrays. Immer freezes what it produces,
+    and V8 copies and iterates a frozen array several times more slowly than an
+    object of the same size.
+  - An LRU cache stores its values directly in its map and keeps recency in two
+    indexes that are never read or changed through Immer drafts (`tree`, by
+    order of last use, and `uses`, by key). `get` no longer rewrites the entry it reads. `ILruCache` no longer
+    extends `ISortedMap`.
+  - Serialized size changes with the keys. With sequential integer keys, maps
+    and sorted maps are 10-25% larger; with random integer or string keys they
+    are 9-18% smaller. LRU caches are 5-18% smaller. Sorted collections are
+    about 13% larger for object items and 50% larger for number items.
+  - `root` is now quoted in the source, like `tree`, so minifiers keep its name.
+- Operations inside producers are about twice as fast. With 100,000 entries,
+  one operation per producer, on Node 24: map `get` 8.9 to 3.0 µs and overwrite
+  16.2 to 8.2 µs; sorted map reorder 26.6 to 14.8 µs; sorted collection insert
+  41.9 to 18.1 µs, remove 36.6 to 13.1 µs and move 74.6 to 35.0 µs; LRU `get`
+  22.1 to 10.0 µs and evicting `set` 26.3 to 17.4 µs. State restored from JSON
+  gains as much. With several operations per producer, and on Node 20 and 22
+  with other state exercising Immer in the same process, the gains are 25-55%.
+- `has` on a map, sorted map or LRU cache, and the first search of a sorted
+  collection in a producer, read the state the draft was created from until
+  something reaches the structure through the draft. Outside nested producers
+  that creates no drafts (`has` 8.3 to 1.9 µs). Changes made without an
+  adapter, such as patches applied to the draft, are seen.
+- **Slower:** key lookups on plain (non-draft) state take about 20 ns longer
+  while the collection fits in the CPU cache (with 4,000 entries, map `get`
+  32 to 49 ns), and iterating a sorted map, sorted collection or LRU cache is
+  about 10% slower there. With 100,000 entries both are as fast as before or
+  faster.
+- **Behaviour change:** a sorted collection's default equality comparer treats
+  an item and an Immer draft of it as the same item. In a producer, `update`,
+  `remove` and `lookupValuePath` therefore find an item given the object stored
+  in the state; previously that call did nothing, because stored items were
+  compared as drafts. The value passed must still have the item's current
+  order: once a producer has changed an item's order, find it by its draft. A
+  custom `equalityComparer` may receive the stored item either as it is in the
+  state the producer started with or as a draft.
+- **Not supported:** `setUseStrictShallowCopy(true)` together with a nested
+  producer whose result is assigned back into the outer draft. Immer's strict
+  copy of an object keeps the children that were not drafted as they are in
+  the base state, so a later change through the outer draft throws (or, with
+  auto-freeze off, changes the earlier state). Version 3 was not affected,
+  because its nodes were arrays.
+- `MapAdapter.set` (and so the sorted map and LRU cache) throws a `TypeError`
+  for an `undefined` key, which the types never allowed.
+- A sorted collection keeps `undefined` items as `undefined` through a JSON
+  round trip (they became `null`).
+- JSON cannot represent a NaN or infinite key, so, as before, an LRU cache
+  does not reliably find such an entry again after a round trip, and setting
+  the key again after further round trips can throw. Where version 3 threw
+  from `get`, `update` or `remove` in that state, they now act on what the
+  map finds, if anything. The other keys are unaffected.
+- `MapAdapter` no longer has the protected `shift`, `trieNodeSize` and `mask`
+  fields: a trie node always has 16 slots. `maxDepth` remains.
+- Iterating a map on plain state lists each trie node's entries when it reaches
+  the node, so an entry removed during the iteration may still be visited.
+  Removing while iterating was already unsupported.
+- With Immer patches, using an LRU entry (including by `get`) replaces both of
+  its indexes, so it records two patches the size of the cache's key set.
+- The sorted index copies node arrays with spread syntax instead of loops.
+- `benchmark/review.ts` freezes each fixture before timing it. Before, the
+  first producer of every sample deep-froze the whole fixture inside the
+  measured region, which dominated the Immer results at large sizes.
+- Add tests for the new layouts, reads on drafts, patches applied to a draft,
+  every adapter against a model under `createDraft`/`finishDraft` and with
+  auto-freeze off, and a fuzz test making several sorted-collection calls per
+  producer. The browser and Closure ADVANCED check now covers sorted
+  collections.
+
 ## 3.1.0
 
 - Fix sorted-map index access under Closure ADVANCED property renaming. Keep

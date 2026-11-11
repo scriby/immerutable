@@ -58,6 +58,17 @@ function checkInvariants(root: ISortedIndexNode, max: number): void {
   expect(leafDepths.size).toBeLessThanOrEqual(1);
 }
 
+/** Checks that each separator is a copy of the first entry of the child after it, whatever the key order. */
+function checkSeparators(node: ISortedIndexNode): void {
+  if (node.c === undefined) return;
+  for (let i = 1; i < node.c.length; i++) {
+    let first = node.c[i];
+    while (first.c !== undefined) first = first.c[0];
+    expect([node.o[i - 1], node.k[i - 1]]).toEqual([first.o[0], first.k[0]]);
+  }
+  node.c.forEach(checkSeparators);
+}
+
 describe('Sorted index', () => {
   it.each([4, 6, 64])('matches a sorted-array model through inserts, moves and removals (max %s)', max => {
     const index = new SortedIndex<number>((a, b) => a - b, max);
@@ -154,6 +165,108 @@ describe('Sorted index', () => {
     }
     expect(Array.from(index.iterate(root, false, key => key))).toEqual([]);
     expect(index.edgeKey(root, false)).toBeUndefined();
+  });
+
+  it('reads and replaces stored orders in an index sorted by key alone', () => {
+    // The LRU cache keeps each key's position in the recency order this way.
+    const index = new SortedIndex<number>(() => 0, 4);
+    let root = index.empty();
+    const model = new Map<number, number>();
+    let seed = 7;
+    const random = (n: number) => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return (seed >>> 8) % n;
+    };
+
+    for (let step = 0; step < 4000; step++) {
+      const key = random(300);
+      if (!model.has(key)) {
+        expect(index.storedOrder(root, 0, key)).toBeUndefined();
+        expect(index.replaceOrder(root, 0, key, step)).toBeUndefined();
+        root = index.insert(root, step, key);
+        model.set(key, step);
+      } else if (random(4) === 0) {
+        root = index.remove(root, 0, key)!;
+        model.delete(key);
+      } else {
+        const before = root;
+        const replaced = index.replaceOrder(root, 0, key, step)!;
+        expect(replaced.previous).toBe(model.get(key));
+        // The earlier version is untouched.
+        expect(index.storedOrder(before, 0, key)).toBe(model.get(key));
+        root = replaced.index;
+        model.set(key, step);
+      }
+      expect(index.storedOrder(root, 0, key)).toBe(model.get(key));
+      if (step % 53 === 0) {
+        const expected = Array.from(model).sort((a, b) => a[0] - b[0]).map(([key, order]) => [order, key]);
+        expect(entries(index, root)).toEqual(expected);
+        checkSeparators(root);
+      }
+    }
+
+    // Replace every order, so those of the keys that are separators as well.
+    expect(root.c).toBeDefined();
+    for (const key of Array.from(model.keys())) {
+      root = index.replaceOrder(root, 0, key, -key)!.index;
+      model.set(key, -key);
+    }
+    checkSeparators(root);
+    expect(entries(index, root)).toEqual(Array.from(model).sort((a, b) => a[0] - b[0]).map(([key, order]) => [order, key]));
+  });
+
+  it('reads a restored undefined order as undefined when it looks one up or replaces it', () => {
+    const index = new SortedIndex<number | undefined>(() => 0, 4);
+    const root: ISortedIndexNode = JSON.parse(JSON.stringify(index.insert(index.empty(), undefined, 1)));
+    expect(root.o).toEqual([null]);
+
+    expect(index.storedOrder(root, 0, 1)).toBeUndefined();
+    const replaced = index.replaceOrder(root, 0, 1, 5)!;
+    expect(replaced.previous).toBeUndefined();
+    expect(index.storedOrder(replaced.index, 0, 1)).toBe(5);
+  });
+
+  it('orders keys by the comparer it is given, at every level', () => {
+    // Descending, so that any comparison made with the default order shows.
+    const descending = (a: number | string, b: number | string) => (b as number) - (a as number);
+    const index = new SortedIndex<number>(() => 0, 4, descending);
+    let root = index.empty();
+    const keys = Array.from({length: 120}, (_, i) => (i * 37) % 120);
+    for (const key of keys) root = index.insert(root, key, key);
+    const listed = () => Array.from(index.iterate(root, false, key => key as number));
+    expect(root.c).toBeDefined();
+    expect(listed()).toEqual(Array.from({length: 120}, (_, i) => 119 - i));
+
+    for (const key of keys) {
+      expect(index.contains(root, 0, key)).toBe(true);
+      expect(index.storedOrder(root, 0, key)).toBe(key);
+      const replaced = index.replaceOrder(root, 0, key, key + 1000)!;
+      expect(replaced.previous).toBe(key);
+      root = replaced.index;
+    }
+    expect(entries(index, root)).toEqual(Array.from({length: 120}, (_, i) => [1119 - i, 119 - i]));
+
+    for (const key of keys.filter(key => key % 3 !== 0)) root = index.remove(root, 0, key)!;
+    expect(listed()).toEqual(Array.from({length: 40}, (_, i) => 117 - 3 * i));
+    expect(index.remove(root, 0, 1)).toBeUndefined();
+    checkSeparators(root);
+  });
+
+  it('lists the first entries in order, reading a restored undefined order as undefined', () => {
+    const index = new SortedIndex<number | undefined>((a, b) => (a === undefined ? Infinity : a) - (b === undefined ? Infinity : b), 4);
+    let root = index.empty();
+    for (let key = 0; key < 50; key++) root = index.insert(root, (key * 7) % 50, key);
+
+    expect(index.firstEntries(root, 0)).toEqual({orders: [], keys: []});
+    expect(index.firstEntries(root, 12)).toEqual({
+      orders: Array.from({length: 12}, (_, order) => order),
+      keys: Array.from({length: 12}, (_, order) => (order * 43) % 50), // 43 is the inverse of 7 modulo 50
+    });
+    expect(index.firstEntries(root, 80).keys.length).toBe(50);
+
+    let small = index.insert(index.insert(index.empty(), undefined, 1), 5, 2);
+    small = JSON.parse(JSON.stringify(small));
+    expect(index.firstEntries(small, 2)).toEqual({orders: [5, undefined], keys: [2, 1]});
   });
 
   it('snapshots structured ordering keys so later mutation cannot reach the index', () => {

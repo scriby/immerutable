@@ -6,7 +6,7 @@ import {strict as assert} from 'assert';
 import {writeFileSync} from 'fs';
 import {resolve} from 'path';
 import {execFileSync} from 'child_process';
-import {produce, setAutoFreeze} from 'immer';
+import {freeze, produce, setAutoFreeze} from 'immer';
 
 const moduleRoot = resolve(process.argv[2] || 'dist/src');
 const moduleRoots = process.env.BENCH_COMPARE ? [moduleRoot, resolve(process.env.BENCH_COMPARE)] : [moduleRoot];
@@ -105,6 +105,11 @@ for (const size of sizes) for (const mode of modes) for (const name of names) fo
       else adapter.set(state, keys[i], value);
     }
     if (name === 'map/restored') state = JSON.parse(JSON.stringify(state));
+    // In an application, producers run on frozen state: Immer freezes what it
+    // returns. Freeze the fixture here, or the first producer of each sample
+    // deep-freezes all of it inside the measured region, which at large sizes
+    // is most of what the sample measures.
+    if (mode !== 'direct' && process.env.BENCH_FREEZE !== 'false') state = freeze(state, true);
     let sequence = 0;
     const step = (draft: any, i: number): number => {
       const key = keys[(Math.imul(i, 2654435761) >>> 0) % length];

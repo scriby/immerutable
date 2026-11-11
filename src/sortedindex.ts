@@ -1,6 +1,6 @@
 /**
- * The index of sorted maps (and so of LRU caches): a persistent B+ tree of
- * (order, key) entries.
+ * The index of sorted maps, and the two indexes of LRU caches: a persistent
+ * B+ tree of (order, key) entries.
  *
  * The index is never accessed through Immer drafts. Its entries are keys and
  * ordering keys, so there is nothing in it for Immer to track. Instead (see
@@ -49,34 +49,30 @@ function makeNode(o: any[], k: Key[], c?: ISortedIndexNode[]): ISortedIndexNode 
   return c === undefined ? freeze({o, k}) : freeze({o, k, c});
 }
 
-// Node arrays are copied with loops, never slice or concat: Immer freezes the
-// arrays of nodes it copies, and V8 slices frozen arrays very slowly.
-function copyRange<T>(array: ReadonlyArray<T>, from = 0, to = array.length): T[] {
-  const copy: T[] = [];
-  for (let i = from; i < to; i++) copy.push(array[i]);
-  return copy;
-}
-
+// Stored arrays are copied with spread syntax, never slice or concat: Immer
+// freezes the arrays of a state restored from JSON, and V8 slices frozen
+// arrays very slowly. Spread copies frozen and unfrozen arrays alike, and
+// several times faster than an element-by-element loop. (Arrays just built
+// here are not frozen yet, and may be sliced.)
 function inserted<T>(array: ReadonlyArray<T>, index: number, value: T): T[] {
-  const length = array.length;
-  const copy: T[] = new Array(length + 1);
-  for (let i = 0; i < index; i++) copy[i] = array[i];
+  const copy = [...array];
+  let i = copy.push(value) - 1;
+  for (; i > index; i--) copy[i] = copy[i - 1];
   copy[index] = value;
-  for (let i = index; i < length; i++) copy[i + 1] = array[i];
   return copy;
 }
 
 function removed<T>(array: ReadonlyArray<T>, index: number): T[] {
-  const length = array.length - 1;
-  const copy: T[] = new Array(length);
-  for (let i = 0; i < index; i++) copy[i] = array[i];
-  for (let i = index; i < length; i++) copy[i] = array[i + 1];
+  const copy = [...array];
+  const last = copy.length - 1;
+  for (let i = index; i < last; i++) copy[i] = copy[i + 1];
+  copy.pop();
   return copy;
 }
 
 function joined<T>(...parts: ReadonlyArray<T>[]): T[] {
   const result: T[] = [];
-  for (const part of parts) for (let i = 0; i < part.length; i++) result.push(part[i]);
+  for (const part of parts) result.push(...part);
   return result;
 }
 
@@ -85,12 +81,18 @@ function firstLeaf(node: ISortedIndexNode): ISortedIndexNode {
   return node;
 }
 
+/** A stored order. An undefined order reads back from JSON as null; it is undefined again here. */
+function orderAt(node: ISortedIndexNode, index: number): any {
+  const order = node.o[index];
+  return order === null ? undefined : order;
+}
+
 function width(node: ISortedIndexNode): number {
   return node.c === undefined ? node.o.length : node.c.length;
 }
 
 /** A total order on keys: numbers (NaN first) before strings. -0 and +0 are equal. */
-function compareKeys(a: Key, b: Key): number {
+function defaultCompareKeys(a: Key, b: Key): number {
   if (a === b) return 0;
   const aType = typeof a;
   if (aType !== typeof b) return aType === 'number' ? -1 : 1;
@@ -106,8 +108,9 @@ export class SortedIndex<O> {
   /**
    * @param compareOrders Orders two ordering keys; ties are broken by key.
    * @param max The most entries in a leaf, and children in an interior node.
+   * @param compareKeys A total order on keys, in place of the default (numbers, NaN first, before strings).
    */
-  constructor(private compareOrders: Comparer<O>, private max: number) {
+  constructor(private compareOrders: Comparer<O>, private max: number, private compareKeys: Comparer<Key> = defaultCompareKeys) {
     // Merging two minimal nodes must fit in one, and every node other than
     // the root needs at least two children for removals to rebalance.
     if (max < 4) throw new Error('maxItemsPerLevel must be at least 4');
@@ -139,10 +142,51 @@ export class SortedIndex<O> {
   }
 
   contains(root: ISortedIndexNode, order: O, key: Key): boolean {
-    let node = root;
-    while (node.c !== undefined) node = node.c[this.childIndex(node, order, key)];
-    const index = this.lowerBound(node, order, key);
-    return index < node.o.length && this.compare(order, key, node, index) === 0;
+    const leaf = this.leafFor(root, order, key);
+    return this.position(leaf, order, key) >= 0;
+  }
+
+  /**
+   * The stored order of the entry found for (order, key), or undefined if
+   * there is none: for an index whose comparer ignores part of the order.
+   */
+  storedOrder(root: ISortedIndexNode, order: O, key: Key): O|undefined {
+    const leaf = this.leafFor(root, order, key);
+    const index = this.position(leaf, order, key);
+    return index < 0 ? undefined : orderAt(leaf, index);
+  }
+
+  /**
+   * Replaces the stored order of the entry found for (order, key), leaving it
+   * where it is: for an index whose comparer ignores the difference. Returns
+   * the new index and the order replaced, or undefined if there is no entry.
+   */
+  replaceOrder(root: ISortedIndexNode, order: O, key: Key, replacement: O): {index: ISortedIndexNode, previous: O}|undefined {
+    let previous: O|undefined;
+    const replace = (node: ISortedIndexNode): ISortedIndexNode|undefined => {
+      if (node.c === undefined) {
+        const index = this.position(node, order, key);
+        if (index < 0) return undefined;
+        previous = orderAt(node, index);
+        const o = [...node.o];
+        o[index] = replacement;
+        return makeNode(o, node.k as Key[]);
+      }
+      const index = this.childIndex(node, order, key);
+      const child = replace(node.c[index]);
+      if (child === undefined) return undefined;
+      const c = [...node.c];
+      c[index] = child;
+      let o = node.o as any[];
+      // A separator is a copy of the first entry of the child after it.
+      if (index > 0 && this.compareKeys(node.k[index - 1], key) === 0) {
+        o = [...o];
+        o[index - 1] = replacement;
+      }
+      return makeNode(o, node.k as Key[], c);
+    };
+    const replaced = replace(root);
+    return replaced === undefined ? undefined : {index: replaced, previous: previous as O};
   }
 
   /** The first (or last) key, or undefined when empty. */
@@ -150,6 +194,23 @@ export class SortedIndex<O> {
     let node = root;
     while (node.c !== undefined) node = node.c[last ? node.c.length - 1 : 0];
     return node.k[last ? node.k.length - 1 : 0];
+  }
+
+  /** The first count entries, in order. */
+  firstEntries(root: ISortedIndexNode, count: number): {orders: O[], keys: Key[]} {
+    const orders: O[] = [], keys: Key[] = [];
+    const visit = (node: ISortedIndexNode) => {
+      if (node.c !== undefined) {
+        for (let i = 0; i < node.c.length && keys.length < count; i++) visit(node.c[i]);
+      } else {
+        for (let i = 0; i < node.k.length && keys.length < count; i++) {
+          orders.push(orderAt(node, i));
+          keys.push(node.k[i]);
+        }
+      }
+    };
+    visit(root);
+    return {orders, keys};
   }
 
   /** Iterates keys in order (or reverse order), projecting each one. */
@@ -203,10 +264,21 @@ export class SortedIndex<O> {
     };
   }
 
+  /** Where the entry (order, key) is in a leaf, or -1 if it is not there. */
+  private position(leaf: ISortedIndexNode, order: O, key: Key): number {
+    const index = this.lowerBound(leaf, order, key);
+    return index < leaf.o.length && this.compare(order, key, leaf, index) === 0 ? index : -1;
+  }
+
+  /** The leaf whose range holds (order, key). */
+  private leafFor(root: ISortedIndexNode, order: O, key: Key): ISortedIndexNode {
+    let node = root;
+    while (node.c !== undefined) node = node.c[this.childIndex(node, order, key)];
+    return node;
+  }
+
   private compare(order: O, key: Key, node: ISortedIndexNode, index: number): number {
-    // A stored undefined order reads back from JSON as null; compare it as undefined.
-    const stored = node.o[index];
-    return this.compareOrders(order, stored === null ? undefined : stored) || compareKeys(key, node.k[index]);
+    return this.compareOrders(order, orderAt(node, index)) || this.compareKeys(key, node.k[index]);
   }
 
   /** The first leaf position whose entry is not less than (order, key). */
@@ -254,7 +326,7 @@ export class SortedIndex<O> {
     const index = this.childIndex(node, order, key);
     const result = this.insertInto(node.c[index], order, key);
     if (!isSplit(result)) {
-      const c = copyRange(node.c);
+      const c = [...node.c];
       c[index] = result;
       return makeNode(node.o as any[], node.k as Key[], c);
     }
@@ -278,8 +350,8 @@ export class SortedIndex<O> {
 
   private removeFrom(node: ISortedIndexNode, order: O, key: Key): ISortedIndexNode|undefined {
     if (node.c === undefined) {
-      const index = this.lowerBound(node, order, key);
-      if (index >= node.o.length || this.compare(order, key, node, index) !== 0) return undefined;
+      const index = this.position(node, order, key);
+      if (index < 0) return undefined;
       return makeNode(removed(node.o, index), removed(node.k, index));
     }
 
@@ -290,17 +362,17 @@ export class SortedIndex<O> {
     // Only a root being collapsed (see remove) has a single child.
     if (width(child) < this.min && children.length > 1) return this.refill(node, index, child);
 
-    const c = copyRange(children);
+    const c = [...children];
     c[index] = child;
     let o = node.o as any[];
     let k = node.k as Key[];
     // A separator is a copy of the first entry of the child after it. When that
     // entry goes, the child's new first entry replaces it, so the tree keeps no
     // removed order: one held by reference may be mutated once it is removed.
-    if (index > 0 && compareKeys(k[index - 1], key) === 0) {
+    if (index > 0 && this.compareKeys(k[index - 1], key) === 0) {
       const first = firstLeaf(child);
-      o = copyRange(o);
-      k = copyRange(k);
+      o = [...o];
+      k = [...k];
       o[index - 1] = first.o[0];
       k[index - 1] = first.k[0];
     }
@@ -329,9 +401,9 @@ export class SortedIndex<O> {
       c = joined(first.c!, second.c!);
     }
 
-    const parentO = copyRange(node.o);
-    const parentK = copyRange(node.k);
-    const parentC = copyRange(siblings);
+    const parentO = [...node.o];
+    const parentK = [...node.k];
+    const parentC = [...siblings];
     const total = c === undefined ? o.length : c.length;
     if (total <= this.max) {
       parentC.splice(at, 2, makeNode(o, k, c));

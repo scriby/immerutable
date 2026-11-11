@@ -1,5 +1,6 @@
 import {hash} from './hash';
-import {createReadonlyMap, createReadonlySet, sameValueZero} from './util';
+import {checkLayout, occupiedSlots, readSlot, slotName} from './slots';
+import {createReadonlyMap, createReadonlySet, isDraft, sameValueZero, untouched} from './util';
 
 const hasOwn = Object.prototype.hasOwnProperty;
 
@@ -19,7 +20,9 @@ function twinBucketKey(key: Key): string {
 }
 
 export interface IMap<K, V> {
-  root: ITrieNode<K, V>,
+  // Keep every access to 'root' quoted: untouched (util.ts) looks it up by
+  // name, so a minifier must not rename it.
+  'root': ITrieNode<K, V>,
   size: number;
 }
 
@@ -33,9 +36,16 @@ export interface IStringIndexable<K, V> {
   [key: string]: ISingleValueNode<K, V>;
 }
 
+/** The number of bits of the hash used per level of the trie. */
+const SHIFT = 4;
+/** The number of slots in a trie node. createTrieNode and occupiedSlots (slots.ts) spell them out. */
+const TRIE_NODE_SIZE = 1 << SHIFT;
+/** The mask used to grab the last SHIFT bits of the hash. */
+const MASK = TRIE_NODE_SIZE - 1;
+
+/** A trie node is an object with one property per slot, named as slots.ts describes. */
 export interface ITrieNode<K, V> {
-  [index: number]: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V>;
-  length: number;
+  [slot: string]: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V>;
 }
 
 export interface IMultiValueNode<K, V> {
@@ -61,14 +71,8 @@ export interface ISingleValueNode<K, V> {
  * Note: The constant factor for these operations will be considerably higher than for standard maps.
  */
 export class MapAdapter<K extends Key, V> {
-  /** The number of bits to use per level of the trie. */
-  protected shift = 4;
-  /** The maximum length of an internal node in the map (containing value and child pointers). */
-  protected trieNodeSize = 1 << this.shift;
-  /** The mask used to grab the last "shift" bits from the key. */
-  protected mask = this.trieNodeSize - 1;
   /** The maximum number of levels in the tree (when we've used up all the bits in the key). */
-  protected maxDepth = Math.ceil(32 / this.shift);
+  protected maxDepth = Math.ceil(32 / SHIFT);
 
   /**
    * Creates a new Immerutable map. This map should be stored in the ngrx store.
@@ -77,14 +81,16 @@ export class MapAdapter<K extends Key, V> {
    */
   create(): IMap<K, V> {
     return {
-      root: this.createTrieNode(),
+      'root': this.createTrieNode(),
       size: 0,
     };
   }
 
   /** Returns true if the map contains the key, false otherwise. */
   has(map: IMap<K, V>, key: K): boolean {
-    return this.lookupEntry(map, key) !== undefined;
+    // Until something reaches the trie through a draft, it is read from the
+    // state the draft was created from, which creates no drafts.
+    return this.entryIn(untouched(map, 'root') || map['root'], key) !== undefined;
   }
 
   /** Gets the value for the specified key. If the key does not exist, undefined is returned. */
@@ -95,7 +101,11 @@ export class MapAdapter<K extends Key, V> {
 
   /** For adapter composition: presence must be independent of an undefined value. */
   protected lookupEntry(map: IMap<K, V>, key: K): ISingleValueNode<K, V>|undefined {
-    const {valueNode, depth} = this.lookupValueNode(map, key);
+    return this.entryIn(map['root'], key);
+  }
+
+  private entryIn(root: ITrieNode<K, V>, key: K): ISingleValueNode<K, V>|undefined {
+    const {valueNode, depth} = this.lookupValueNode(root, key);
 
     if (valueNode === undefined) return;
 
@@ -112,15 +122,17 @@ export class MapAdapter<K extends Key, V> {
    * If the key already exists, it will be replaced with the new value.
    */
   set(map: IMap<K, V>, key: K, value: V): void {
-    const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
+    // An entry is recognized by its key (see lookupValueNode), so it needs one.
+    if (key === undefined) throw new TypeError('A map key must be a number or a string');
+    const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map['root'], key);
 
     if (valueNode === undefined) {
       map.size++;
 
       if (depth < this.maxDepth) {
-        containingTrieNode[index] = this.createSingleValueNode(key, value);
+        containingTrieNode[slotName(index)] = this.createSingleValueNode(key, value);
       } else if (depth === this.maxDepth) {
-        const newValueNode = containingTrieNode[index] = this.createValueNode();
+        const newValueNode = containingTrieNode[slotName(index)] = this.createValueNode();
         newValueNode.map[bucketKey(key)] = this.createSingleValueNode(key, value);
       }
 
@@ -151,13 +163,13 @@ export class MapAdapter<K extends Key, V> {
    * Removes the specified key from the map. If the key does not exist, this is a no-op.
    */
   remove(map: IMap<K, V>, key: K): void {
-    const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map, key);
+    const {containingTrieNode, depth, index, valueNode} = this.lookupValueNode(map['root'], key);
 
     if (valueNode) {
       if (depth < this.maxDepth) {
         if (!sameValueZero((valueNode as ISingleValueNode<K, V>).key, key)) return;
-        // Clear the slot rather than deleting it, so the array stays packed.
-        containingTrieNode[index] = undefined as any;
+        // Clear the slot rather than deleting it, so the node keeps its shape.
+        containingTrieNode[slotName(index)] = undefined as any;
         map.size--;
       } else {
         const bucket = valueNode as IMultiValueNode<K, V>;
@@ -257,11 +269,31 @@ export class MapAdapter<K extends Key, V> {
   private createEntryIterable<R>(map: IMap<K, V>, project: (entry: ISingleValueNode<K, V>) => R): Iterable<R> {
     return {
       [Symbol.iterator]: () => {
-        // Parallel stacks of trie nodes and their next child index. Iterative,
-        // so the number of empty slots skipped cannot exhaust the call stack.
-        const nodes: ITrieNode<K, V>[] = [map.root];
-        const indices: number[] = [0];
-        const lengths: number[] = [map.root.length];
+        // The path of trie nodes being visited, as parallel arrays by depth.
+        // Iterative, so the number of empty slots skipped cannot exhaust the
+        // call stack. A draft is read slot by slot, so that only the slots
+        // reached are drafted. A plain node's occupied slots are listed at once
+        // (into a list reused for its depth), which is faster. An entry
+        // removed after its node was listed is therefore still visited:
+        // removing while iterating is not supported.
+        const drafts: Array<ITrieNode<K, V>|undefined> = [];
+        const lists: any[][] = [];
+        const counts: number[] = [];
+        const indices: number[] = [];
+        let depth = -1;
+        const enter = (node: ITrieNode<K, V>) => {
+          depth++;
+          indices[depth] = 0;
+          if (isDraft(node)) {
+            drafts[depth] = node;
+            counts[depth] = TRIE_NODE_SIZE;
+          } else {
+            drafts[depth] = undefined;
+            counts[depth] = occupiedSlots(node, lists[depth] || (lists[depth] = []));
+          }
+        };
+        checkLayout(map['root']);
+        enter(map['root']);
         let bucket: ISingleValueNode<K, V>[]|undefined;
         let bucketIndex = 0;
 
@@ -271,26 +303,23 @@ export class MapAdapter<K extends Key, V> {
             bucket = undefined;
           }
 
-          for (let top = nodes.length - 1; top >= 0; top = nodes.length - 1) {
-            const index = indices[top];
-            if (index >= lengths[top]) {
-              nodes.pop();
-              indices.pop();
-              lengths.pop();
+          while (depth >= 0) {
+            const index = indices[depth];
+            if (index >= counts[depth]) {
+              depth--;
               continue;
             }
 
-            indices[top] = index + 1;
-            const child = nodes[top][index];
+            indices[depth] = index + 1;
+            const draft = drafts[depth];
+            const child = draft === undefined ? lists[depth][index] : readSlot(draft, index);
             if (child == null) continue;
 
-            if (Array.isArray(child)) {
-              nodes.push(child);
-              indices.push(0);
-              lengths.push(child.length);
-            } else if ((child as ISingleValueNode<K, V>).key !== undefined) {
+            if ((child as ISingleValueNode<K, V>).key !== undefined) {
               // Test the key: JSON drops an undefined value, leaving only {key}.
               return child as ISingleValueNode<K, V>;
+            } else if ((child as IMultiValueNode<K, V>).map === undefined) {
+              enter(child as ITrieNode<K, V>);
             } else {
               const entries = (child as IMultiValueNode<K, V>).map;
               const properties = Object.keys(entries);
@@ -335,7 +364,14 @@ export class MapAdapter<K extends Key, V> {
   }
 
   private createTrieNode(): ITrieNode<K, V> {
-    return [];
+    // Every slot is present from the start (and is cleared, never deleted), so
+    // all trie nodes share one shape, which V8 copies fastest. Building nodes
+    // slot by slot measured about 30% slower in producers.
+    const none: any = undefined;
+    return {
+      '#0': none, '#1': none, '#2': none, '#3': none, '#4': none, '#5': none, '#6': none, '#7': none,
+      '#8': none, '#9': none, '#a': none, '#b': none, '#c': none, '#d': none, '#e': none, '#f': none,
+    };
   }
 
   private createSingleValueNode(key: K, value: V) {
@@ -365,9 +401,10 @@ export class MapAdapter<K extends Key, V> {
     return hasOwn.call(entries, twin) ? twin : undefined;
   }
 
-  private lookupValueNode(map: IMap<K, V>, key: K) {
+  private lookupValueNode(root: ITrieNode<K, V>, key: K) {
+    checkLayout(root);
     let hashCode = hash(key);
-    let node: ITrieNode<K, V> = map.root;
+    let node = root;
     let index = 0;
     let depth = 1;
     let valueNode: IMultiValueNode<K, V> | ISingleValueNode<K, V> | undefined;
@@ -376,12 +413,13 @@ export class MapAdapter<K extends Key, V> {
       index = this.computePartialHashCode(hashCode, depth);
       depth++;
 
-      let nextNode: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V> = node[index];
+      let nextNode: ITrieNode<K, V> | IMultiValueNode<K, V> | ISingleValueNode<K, V> = readSlot(node, index);
       if (nextNode == null) {
         valueNode = undefined;
         break;
-      } else if (Array.isArray(nextNode)) {
-        node = nextNode;
+      } else if (depth < this.maxDepth && (nextNode as ISingleValueNode<K, V>).key === undefined) {
+        // Above the bucket level, a child without a key is a trie node.
+        node = nextNode as ITrieNode<K, V>;
       } else {
         valueNode = nextNode as IMultiValueNode<K, V> | ISingleValueNode<K, V>;
         break;
@@ -392,9 +430,9 @@ export class MapAdapter<K extends Key, V> {
   }
 
   private pushSingleValueNodeDown(trieNode: ITrieNode<K, V>, index: number, depth: number) {
-    const singleValueNode = trieNode[index] as ISingleValueNode<K, V>;
-    const newTrieNode = trieNode[index] = this.createTrieNode();
-    const partialHash = this.computePartialHashCode(hash(singleValueNode.key), depth);
+    const singleValueNode = readSlot(trieNode, index) as ISingleValueNode<K, V>;
+    const newTrieNode = trieNode[slotName(index)] = this.createTrieNode();
+    const partialHash = slotName(this.computePartialHashCode(hash(singleValueNode.key), depth));
 
     if (depth === this.maxDepth - 1) {
       const newValueNode = newTrieNode[partialHash] = this.createValueNode();
@@ -405,7 +443,7 @@ export class MapAdapter<K extends Key, V> {
   }
 
   private computePartialHashCode(hashCode: number, depth: number) {
-    return (hashCode >> ((depth - 1) * this.shift)) & this.mask;
+    return (hashCode >> ((depth - 1) * SHIFT)) & MASK;
   }
 }
 

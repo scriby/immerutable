@@ -1,5 +1,5 @@
 import {produce, produceWithPatches, applyPatches, enablePatches} from 'immer';
-import {MapAdapter, SortedMapAdapter, LruCacheAdapter} from '../src';
+import {MapAdapter, SortedCollectionAdapter, SortedMapAdapter, LruCacheAdapter} from '../src';
 
 function equal(actual: unknown, expected: unknown): void {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) {
@@ -66,4 +66,39 @@ cache = produce(cache, draft => {
   lru.set(draft, 11, 11);
 });
 equal(Array.from(lru.getKeysIterable(cache)), [3, 4, 5, 6, 7, 8, 9, 0, 10, 11]);
+// The properties that are looked up by name, and the map's slots, must keep
+// their names in stored state, whatever a minifier renames.
+const storedCache = JSON.parse(JSON.stringify(cache));
+for (const name of ['root', 'tree', 'uses']) {
+  if (!Object.keys(storedCache).includes(name)) throw new Error(`Stored cache has no property named ${name}`);
+}
+if (!Object.keys(storedCache['root']).every(name => /^#[0-9a-f]$/.test(name))) throw new Error('Unexpected slot names');
+cache = produce(storedCache as typeof cache, draft => {
+  // Presence is read from the state under the draft, found by property name.
+  if (!lru.has(draft, 5) || lru.has(draft, 99)) throw new Error('Wrong presence on a draft');
+  lru.get(draft, 3);
+  lru.remove(draft, 4);
+});
+equal(Array.from(lru.getIterable(cache)), [[5, 5], [6, 6], [7, 7], [8, 8], [9, 9], [0, 0], [10, 10], [11, 11], [3, 3]]);
+
+// Sorted collection nodes are objects with named positions, read through
+// literal names and written through computed ones: both must name the same
+// properties after renaming, and after a JSON round trip.
+const collection = new SortedCollectionAdapter<{id: number, order: number}>({
+  orderComparer: (a, b) => a.order - b.order,
+  equalityComparer: (a, b) => a.id === b.id,
+  maxItemsPerLevel: 4,
+});
+let items = produce(collection.create(), draft => {
+  for (let i = 0; i < 60; i++) collection.insert(draft, {id: i, order: (i * 7) % 60});
+});
+const stored = Array.from(collection.getIterable(items));
+equal(stored.map(item => item.order), Array.from({length: 60}, (_, i) => i));
+items = produce(JSON.parse(JSON.stringify(items)) as typeof items, draft => {
+  collection.remove(draft, Array.from(collection.getIterable(draft))[3]);
+  collection.update(draft, {id: stored[10].id, order: 10}, item => { item.order = 1000; });
+  collection.remove(draft, collection.getFirst(draft)!);
+});
+equal(Array.from(collection.getIterable(items)).map(item => item.order),
+  [...Array.from({length: 60}, (_, i) => i).filter(i => i !== 0 && i !== 3 && i !== 10), 1000]);
 (globalThis as any)['compatibilityPassed'] = true;

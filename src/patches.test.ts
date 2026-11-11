@@ -1,5 +1,7 @@
 import {applyPatches, enablePatches, produce, produceWithPatches} from 'immer';
 import {LruCacheAdapter} from './lrucache';
+import {MapAdapter} from './map';
+import {SortedCollectionAdapter} from './sortedcollection';
 import {SortedMapAdapter} from './sortedmap';
 
 enablePatches();
@@ -70,6 +72,81 @@ describe('Immer patches', () => {
     expect(keys[0]).toBe(500);
     expect(keys[keys.length - 1]).toBe(5);
     expect(keys).toHaveLength(101);
+  });
+
+  describe('patches applied to a draft, then adapter calls in the same producer', () => {
+    // Inside a producer the adapters read the state under a draft for as long
+    // as the draft is unmodified. Patches modify it without going through an
+    // adapter, and the adapters must see the result.
+    it('map', () => {
+      const adapter = new MapAdapter<string, number>();
+      const base = produce({map: adapter.create()}, draft => { adapter.set(draft.map, 'a', 1); });
+      const [, patches] = produceWithPatches(base, draft => { adapter.set(draft.map, 'b', 2); adapter.remove(draft.map, 'a'); });
+
+      const next = produce(base, draft => {
+        applyPatches(draft, patches);
+        expect([adapter.has(draft.map, 'b'), adapter.get(draft.map, 'b'), adapter.has(draft.map, 'a'), adapter.get(draft.map, 'a')])
+          .toEqual([true, 2, false, undefined]);
+        adapter.set(draft.map, 'c', 3);
+      });
+
+      expect(Array.from(adapter.getIterable(next.map)).sort()).toEqual([['b', 2], ['c', 3]]);
+    });
+
+    it('sorted map', () => {
+      const adapter = new SortedMapAdapter<string, Item>({getOrderingKey: item => item.order});
+      const base = produce({map: adapter.create()}, draft => {
+        adapter.set(draft.map, 'a', {order: 1, data: ''});
+        adapter.set(draft.map, 'c', {order: 3, data: ''});
+      });
+      const [, patches] = produceWithPatches(base, draft => { adapter.set(draft.map, 'b', {order: 2, data: ''}); });
+
+      const next = produce(base, draft => {
+        applyPatches(draft, patches);
+        expect(Array.from(adapter.getKeysIterable(draft.map))).toEqual(['a', 'b', 'c']);
+        adapter.set(draft.map, 'z', {order: 0, data: ''});
+        adapter.update(draft.map, 'b', item => { item.order = 9; });
+      });
+
+      expect(Array.from(adapter.getKeysIterable(next.map))).toEqual(['z', 'a', 'c', 'b']);
+      expect(adapter.getSize(next.map)).toBe(4);
+    });
+
+    it('LRU cache', () => {
+      const adapter = new LruCacheAdapter<string, number>(10);
+      const base = produce({lru: adapter.create()}, draft => { adapter.set(draft.lru, 'a', 1); adapter.set(draft.lru, 'c', 3); });
+      const [, patches] = produceWithPatches(base, draft => { adapter.set(draft.lru, 'b', 2); adapter.get(draft.lru, 'a'); });
+
+      const next = produce(base, draft => {
+        applyPatches(draft, patches);
+        expect(Array.from(adapter.getKeysIterable(draft.lru))).toEqual(['c', 'b', 'a']);
+        expect(adapter.get(draft.lru, 'c')).toBe(3);
+      });
+
+      expect(Array.from(adapter.getIterable(next.lru))).toEqual([['b', 2], ['a', 1], ['c', 3]]);
+      expect(adapter.getSize(next.lru)).toBe(3);
+    });
+
+    it('sorted collection', () => {
+      const adapter = new SortedCollectionAdapter<{id: number, order: number}>({
+        orderComparer: (a, b) => a.order - b.order, equalityComparer: (a, b) => a.id === b.id, maxItemsPerLevel: 4,
+      });
+      const base = produce({items: adapter.create()}, draft => { for (let i = 0; i < 25; i++) adapter.insert(draft.items, {id: i, order: i * 2}); });
+      const [, patches] = produceWithPatches(base, draft => {
+        adapter.insert(draft.items, {id: 100, order: 15});
+        adapter.insert(draft.items, {id: 101, order: 31});
+      });
+
+      const next = produce(base, draft => {
+        applyPatches(draft, patches);
+        adapter.remove(draft.items, {id: 100, order: 15});
+        adapter.insert(draft.items, {id: 102, order: 17});
+      });
+
+      const ids = Array.from(adapter.getIterable(next.items)).map(item => item.id);
+      expect(ids).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 102, 9, 10, 11, 12, 13, 14, 15, 101, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
+      expect(adapter.getSize(next.items)).toBe(27);
+    });
   });
 
   describe('LRU cache', () => {

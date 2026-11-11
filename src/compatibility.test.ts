@@ -141,7 +141,8 @@ describe.each(modes)('Persistent-state compatibility (%s)', mode => {
     expect(unchanged).toBe(original);
     const result = change(original, draft => { adapter.update(draft, 1, item => { item.count++; }); });
     expect(adapter.get(result, 1)).toEqual({count: 2});
-    expect(result.root[2]).toBe(original.root[2]);
+    expect(original.root['#2']).toBeDefined();
+    expect(result.root['#2']).toBe(original.root['#2']);
     if (mode !== 'direct') {
       expect(result.root).not.toBe(original.root);
       expect(adapter.get(original, 1)).toEqual({count: 1});
